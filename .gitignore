@@ -1,0 +1,11 @@
+node_modules/
+release/
+dist/
+build-app-*-staging/
+.agents/
+*.log
+builder-*.log
+npm-debug.log*
+yarn-error.log*
+.DS_Store
+Thumbs.db

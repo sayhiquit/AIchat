@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI 人际管家</title>
+    <link rel="stylesheet" href="./styles.css?v=person-context-1" />
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <button class="avatar-button" id="homeButton" title="回到中心">
+          <span>我</span>
+        </button>
+
+        <nav class="main-nav" aria-label="主导航">
+          <button class="nav-button active" data-route="network">
+            <i data-lucide="network"></i>
+            <span>人际网</span>
+          </button>
+          <button class="nav-button" data-route="dialogue">
+            <i data-lucide="messages-square"></i>
+            <span>模拟对话</span>
+          </button>
+          <button class="nav-button" data-route="schedule">
+            <i data-lucide="calendar-days"></i>
+            <span>日程安排</span>
+          </button>
+        </nav>
+
+        <button class="theme-toggle" id="themeToggle" type="button" aria-label="切换黑夜模式" title="切换黑夜模式">
+          <i data-lucide="sun"></i>
+          <span class="theme-track">
+            <span class="theme-thumb"></span>
+          </span>
+          <i data-lucide="moon"></i>
+        </button>
+
+        <button class="nav-button settings-button" data-route="settings">
+          <i data-lucide="settings"></i>
+          <span>设置</span>
+        </button>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" id="currentScope">AI 人际管家</p>
+            <h1 id="pageTitle">关系总览</h1>
+          </div>
+          <div class="top-actions">
+            <button class="icon-button" id="backButton" title="返回">
+              <i data-lucide="arrow-left"></i>
+              <span>返回</span>
+            </button>
+            <button class="icon-button" id="toggleView" title="切换展示">
+              <i data-lucide="panels-top-left"></i>
+              <span>切换展示</span>
+            </button>
+            <button class="icon-button" id="manageButton" title="管理关系">
+              <i data-lucide="sliders-horizontal"></i>
+              <span>管理关系</span>
+            </button>
+          </div>
+        </header>
+
+        <section class="view view-network active" id="networkView">
+          <div class="network-stage" id="networkStage">
+            <aside class="network-activity-panel" id="networkActivityPanel"></aside>
+            <aside class="network-calendar-panel" id="networkCalendarPanel"></aside>
+            <svg class="edge-layer" id="edgeLayer" aria-hidden="true"></svg>
+            <div class="node-layer" id="nodeLayer"></div>
+            <div class="network-hint" id="networkHint">
+              <strong>关系焦点</strong>
+              <span>点击分类进入分支，点击人物进入画像。</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="view view-manage" id="manageView">
+          <aside class="category-rail" id="categoryRail"></aside>
+          <section class="directory-panel">
+            <div class="directory-header">
+              <div>
+                <p class="eyebrow">管理视图</p>
+                <h2 id="directoryTitle">全部关系</h2>
+              </div>
+              <div class="directory-actions">
+                <button class="ghost-button" id="clearPresetButton">
+                  <i data-lucide="eraser"></i>
+                  <span>清空预设</span>
+                </button>
+                <button class="ghost-button" id="defaultTemplateButton">
+                  <i data-lucide="refresh-cw"></i>
+                  <span>默认模板</span>
+                </button>
+                <button class="ghost-button" id="addManageCategoryButton">
+                  <i data-lucide="folder-plus"></i>
+                  <span>新增分类</span>
+                </button>
+                <button class="primary-button" id="addPersonButton">
+                  <i data-lucide="user-plus"></i>
+                  <span>添加人物</span>
+                </button>
+              </div>
+            </div>
+            <div class="manage-category-editor" id="manageCategoryEditor"></div>
+            <div class="person-grid" id="personGrid"></div>
+          </section>
+        </section>
+
+        <section class="view view-person" id="personView">
+          <aside class="category-rail compact" id="personCategoryRail"></aside>
+          <section class="person-detail" id="personDetail"></section>
+        </section>
+
+        <section class="view view-dialogue" id="dialogueView">
+          <div class="dialogue-layout">
+            <aside class="dialogue-history">
+              <div class="history-search">
+                <i data-lucide="search"></i>
+                <input id="dialogueSearchInput" placeholder="搜索" />
+              </div>
+              <select id="dialoguePersonSelect" aria-label="对话对象" hidden></select>
+              <div class="history-list" id="dialogueHistoryList"></div>
+            </aside>
+
+            <section class="chat-simulator">
+              <div class="chat-window-head">
+                <div>
+                  <h2 id="dialogueChatTitle">模拟对话</h2>
+                  <span id="dialogueChatMeta">选择左侧人物开始</span>
+                </div>
+                <div class="chat-head-actions">
+                  <label class="auto-reply-toggle">
+                    <input type="checkbox" id="autoReplyToggle" />
+                    <span class="auto-pill" aria-hidden="true">
+                      <span class="auto-knob"></span>
+                      <span class="auto-state auto-on">ON</span>
+                      <span class="auto-state auto-off">OFF</span>
+                    </span>
+                  </label>
+                  <button class="ghost-button" id="saveMemoryButton">
+                    <i data-lucide="brain"></i>
+                    <span>新增记忆</span>
+                  </button>
+                </div>
+              </div>
+              <div class="conversation-box">
+                <div class="chat-thread" id="chatThread"></div>
+                <div class="floating-mode-switcher">
+                  <div class="segmented mode-switcher" role="tablist" aria-label="输入模式">
+                    <button class="segment active" data-mode="incoming">对方所说</button>
+                    <button class="segment" data-mode="report">我方述说</button>
+                  </div>
+                </div>
+                <div class="chat-composer">
+                  <textarea id="dialogueInput" placeholder="输入内容，Enter 发送，Shift + Enter 换行"></textarea>
+                  <textarea id="customReply" hidden></textarea>
+                  <div class="composer-bar">
+                    <div class="composer-hint" id="composerHint">对方所说模式：先输入对方的话，再生成建议回复。</div>
+                    <div class="composer-actions">
+                      <button class="primary-button" id="generateButton">
+                        <i data-lucide="sparkles"></i>
+                        <span>生成选项</span>
+                      </button>
+                      <button class="primary-button" id="confirmReplyButton">
+                        <i data-lucide="send"></i>
+                        <span>发送</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <aside class="reply-panel compact-analysis">
+              <div class="section-head">
+                <div>
+                  <p class="eyebrow">AI 建议</p>
+                  <h2 id="analysisTitle">回复与心理分析</h2>
+                </div>
+              </div>
+              <div class="analysis-box" id="analysisBox"></div>
+              <div class="memory-note" id="memoryNote">
+                <strong>记忆规则</strong>
+                <p>普通模拟不会自动写入人物记忆。点击“新增记忆”后编辑并保存，才会作为真实记录参与画像蒸馏。</p>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="view view-schedule" id="scheduleView">
+          <div class="schedule-board">
+            <section class="timeline-panel">
+              <p class="eyebrow">今日时间表</p>
+              <h2>关系维护节奏</h2>
+              <span class="schedule-date" id="scheduleDate"></span>
+              <div id="monthCalendar" class="month-calendar"></div>
+              <div id="todoList" class="schedule-timeline"></div>
+            </section>
+            <aside class="schedule-side">
+            <section class="schedule-card">
+              <p class="eyebrow">本周</p>
+              <h2>维护分布</h2>
+              <div id="weeklyPlan" class="week-grid"></div>
+            </section>
+            <section class="schedule-card">
+              <p class="eyebrow">复盘</p>
+              <h2>近期学习点</h2>
+              <div id="lessonList" class="todo-list"></div>
+            </section>
+            </aside>
+          </div>
+        </section>
+
+        <section class="view view-settings" id="settingsView">
+          <div class="settings-layout">
+            <section class="settings-module relation-settings-module">
+              <p class="eyebrow">模板</p>
+              <h2>默认关系分类</h2>
+              <div id="categoryEditor" class="editor-list"></div>
+              <button class="primary-button" id="addCategoryButton">
+                <i data-lucide="folder-plus"></i>
+                <span>新增分类</span>
+              </button>
+            </section>
+            <section class="settings-module model-settings-module">
+              <p class="eyebrow">模型</p>
+              <h2>模型接入</h2>
+              <div class="principle-list">
+                <p>帮助表达清楚，而不是替你操控别人。</p>
+                <p>保留不确定性，不把心理分析当成事实。</p>
+                <p>越多真实反馈，画像越贴近现实。</p>
+              </div>
+              <div class="ai-config-panel">
+                <div class="section-head compact">
+                  <div>
+                    <p class="eyebrow">AI 接入</p>
+                    <h3>模型配置</h3>
+                  </div>
+                  <button class="ghost-button" id="deepseekPresetButton" type="button">
+                    <i data-lucide="sparkles"></i>
+                    <span>DeepSeek 预设</span>
+                  </button>
+                </div>
+                <label class="toggle-row">
+                  <input type="checkbox" id="aiEnabledToggle" />
+                  <span>启用在线 AI 回复</span>
+                </label>
+                <div class="ai-config-grid">
+                  <label>
+                    <span>供应商</span>
+                    <select id="aiProviderSelect">
+                      <option value="deepseek">DeepSeek</option>
+                      <option value="openai-compatible">OpenAI 兼容</option>
+                      <option value="custom">自定义</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>模型</span>
+                    <input id="aiModelInput" placeholder="deepseek-v4-flash" />
+                  </label>
+                  <label class="wide">
+                    <span>Base URL</span>
+                    <input id="aiBaseUrlInput" placeholder="https://api.deepseek.com" />
+                  </label>
+                  <label class="wide">
+                    <span>API Key</span>
+                    <input id="aiApiKeyInput" type="password" placeholder="sk-..." autocomplete="off" />
+                  </label>
+                </div>
+                <div class="data-actions">
+                  <button class="primary-button" id="saveAiConfigButton" type="button">
+                    <i data-lucide="save"></i>
+                    <span>保存配置</span>
+                  </button>
+                </div>
+                <p class="meta-line" id="aiConfigStatus">当前使用本地模拟回复。正式上线建议通过后端代理调用模型，不在前端暴露 API Key。</p>
+              </div>
+            </section>
+            <section class="settings-module archive-settings-module export-guide featured-guide">
+              <p class="eyebrow">资料</p>
+              <h2>资料仓库</h2>
+              <p>管理聊天记录导入、画像蒸馏和导出教程。人物详情与关系网详情都可以导入 TXT、CSV、JSON、Markdown、HTML 聊天记录文件；QQ 的 BAK/BAT 会尝试读取，但如果不是明文，需要先转成 TXT/HTML。</p>
+              <div class="distill-rules">
+                <span>识别规则</span>
+                <p>推荐格式：我：回复内容 / 对方昵称：回复内容 / 2026-07-08 10:20 对方昵称：回复内容。昵称清晰时会自动判断，我方和对方不需要每句手动备注。</p>
+              </div>
+              <h3>聊天记录导出教程</h3>
+              <div class="export-guide-grid">
+                <article>
+                  <strong>微信</strong>
+                  <p>官方更偏“备份与恢复 / 迁移聊天记录”，不是通用明文导出。少量记录可复制关键片段；大量记录需要先转换成可读文本，再导入蒸馏。</p>
+                </article>
+                <article>
+                  <strong>QQ</strong>
+                  <p>电脑端进入消息管理器，按联系人或群筛选后导出消息记录。优先选择 TXT / HTML 这类可读格式；如果拿到的是 BAK/BAT，可以先尝试导入，失败则说明它更像备份或脚本，需要转成明文后再蒸馏。</p>
+                </article>
+                <article>
+                  <strong>钉钉</strong>
+                  <p>普通用户通常更适合复制关键上下文或导出相关文档。企业侧留存、审计和导出能力取决于组织配置与管理员权限。</p>
+                </article>
+                <article>
+                  <strong>飞书</strong>
+                  <p>可把部分消息导出到文档或复制到文档，再下载为文本类文件。适合先整理项目沟通、会议结论、上下文片段后导入。</p>
+                </article>
+              </div>
+            </section>
+            <section class="settings-module memory-settings-module">
+              <p class="eyebrow">迁移</p>
+              <h2>记忆迁移</h2>
+              <p>导出当前本地记忆，之后可以导入到另一台设备。后续接登录系统时，也会保留离线模式。</p>
+              <div class="data-actions">
+                <button class="primary-button" id="exportMemoryButton">
+                  <i data-lucide="download"></i>
+                  <span>导出记忆</span>
+                </button>
+                <button class="ghost-button" id="importMemoryButton">
+                  <i data-lucide="upload"></i>
+                  <span>导入记忆</span>
+                </button>
+              </div>
+              <label class="toggle-row">
+                <input type="checkbox" id="offlineModeToggle" />
+                <span>离线模式：只保存在本机，不上传云端</span>
+              </label>
+              <input type="file" id="importMemoryInput" accept="application/json,.json" hidden />
+              <p class="storage-location" id="storageLocation">当前存储位置：本地浏览器 localStorage。</p>
+              <p class="meta-line" id="memoryStatus">当前记忆保存在本地浏览器。</p>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog class="modal" id="personModal">
+      <form class="modal-body" id="personForm">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">人物档案</p>
+            <h2 id="personModalTitle">添加人物</h2>
+          </div>
+          <button class="icon-only" type="button" data-modal-close aria-label="关闭">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <div class="form-grid">
+          <label>
+            <span>姓名</span>
+            <input name="name" required />
+          </label>
+          <label>
+            <span>分类</span>
+            <select name="categoryId" required></select>
+          </label>
+          <label>
+            <span>关系</span>
+            <input name="relation" placeholder="直属领导 / 初中同学 / 表姐" />
+          </label>
+          <label>
+            <span>重要程度</span>
+            <select name="importance">
+              <option>高</option>
+              <option>中</option>
+              <option>低</option>
+            </select>
+          </label>
+          <label>
+            <span>关系分量</span>
+            <select name="roleWeight">
+              <option>非常重要的领导</option>
+              <option>关键决策者</option>
+              <option>重要协作者</option>
+              <option>重要私人关系</option>
+              <option>关系很好的朋友</option>
+              <option>亲近亲戚</option>
+              <option>家庭关系</option>
+              <option>普通往来</option>
+              <option>低优先级</option>
+            </select>
+          </label>
+          <label>
+            <span>亲近程度</span>
+            <select name="closeness">
+              <option>非常亲近</option>
+              <option>比较亲近</option>
+              <option>正常关系</option>
+              <option>正式工作关系</option>
+              <option>有辈分距离</option>
+              <option>有距离感</option>
+            </select>
+          </label>
+          <label>
+            <span>来往频率</span>
+            <select name="contactFrequency">
+              <option>高频同步</option>
+              <option>按项目沟通</option>
+              <option>每周联系</option>
+              <option>不定期联系</option>
+              <option>低频往来</option>
+            </select>
+          </label>
+          <label class="wide">
+            <span>性格与沟通说明</span>
+            <textarea name="personality" placeholder="比如：重结果，喜欢简洁，不喜欢临时变化。"></textarea>
+          </label>
+          <label class="wide">
+            <span>人物背景</span>
+            <textarea name="background" placeholder="比如：非常重要的直属领导，负责项目优先级和资源协调；平时每周同步一次，风险要提前说。"></textarea>
+          </label>
+          <label class="wide">
+            <span>相处注意事项</span>
+            <textarea name="notes" placeholder="比如：汇报时先说结论，再说需要支持。"></textarea>
+          </label>
+        </div>
+        <menu class="modal-actions">
+          <button class="ghost-button" type="button" data-modal-close>取消</button>
+          <button class="primary-button" id="savePersonButton" type="submit">
+            <i data-lucide="save"></i>
+            <span>保存</span>
+          </button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="deletePersonModal">
+      <div class="modal-body">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">危险操作</p>
+            <h2>删除人物</h2>
+          </div>
+          <button class="icon-only" type="button" id="cancelDeletePersonTop" aria-label="关闭">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <p class="meta-line">
+          确定删除「<strong id="deletePersonName"></strong>」吗？这个人的画像、蒸馏记录和互动记忆都会从本地缓存中移除。
+        </p>
+        <menu class="modal-actions">
+          <button class="ghost-button" type="button" id="cancelDeletePerson">取消</button>
+          <button class="primary-button danger-button" type="button" id="confirmDeletePerson">
+            <i data-lucide="trash-2"></i>
+            <span>确认删除</span>
+          </button>
+        </menu>
+      </div>
+    </dialog>
+
+    <dialog class="modal" id="profileModal">
+      <form class="modal-body" id="profileForm">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">个人设置</p>
+            <h2>我的信息</h2>
+          </div>
+          <button class="icon-only" type="button" data-profile-close aria-label="关闭">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <div class="form-grid">
+          <label>
+            <span>显示名称</span>
+            <input name="displayName" placeholder="例如：小林 / Alex / 我" />
+          </label>
+          <label>
+            <span>当前身份</span>
+            <input name="role" placeholder="例如：产品经理 / 学生 / 创业者" />
+          </label>
+          <label class="wide">
+            <span>沟通目标</span>
+            <textarea name="goals" placeholder="例如：希望汇报更清晰、和同事协作更顺、减少误解。"></textarea>
+          </label>
+          <label class="wide">
+            <span>个人偏好与边界</span>
+            <textarea name="notes" placeholder="例如：不想太讨好别人，希望回复自然但有分寸。"></textarea>
+          </label>
+        </div>
+        <menu class="modal-actions">
+          <button class="ghost-button" type="button" data-profile-close>取消</button>
+          <button class="primary-button" type="submit">
+            <i data-lucide="save"></i>
+            <span>保存</span>
+          </button>
+        </menu>
+      </form>
+    </dialog>
+
+    <script src="./app.js?v=person-context-1"></script>
+  </body>
+</html>
