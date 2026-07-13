@@ -1961,7 +1961,7 @@ function buildLocalIntentAnalysis(person, intent) {
 
 async function buildIntentAnalysisWithAi(person, intent) {
   const config = state.aiConfig || {};
-  const response = await fetch(`${config.baseUrl.replace(/\/$/, "")}/v1/chat/completions`, {
+  const response = await fetch(aiEndpoint(), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -2004,9 +2004,27 @@ function canUseOnlineAi() {
   return config.enabled === true && !!config.apiKey && !!config.baseUrl && !!config.model;
 }
 
+function normalizeAiBaseUrl(value = "") {
+  return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function buildAiUrl(path) {
+  const baseUrl = normalizeAiBaseUrl(normalizeAiConfig().baseUrl);
+  if (!baseUrl) return "";
+  const cleanPath = String(path || "").replace(/^\/+/, "");
+  if (cleanPath === "chat/completions" && /\/chat\/completions$/i.test(baseUrl)) return baseUrl;
+  if (cleanPath === "models" && /\/chat\/completions$/i.test(baseUrl)) {
+    return baseUrl.replace(/\/chat\/completions$/i, "/models");
+  }
+  return `${baseUrl}/${cleanPath}`;
+}
+
 function aiEndpoint() {
-  const baseUrl = normalizeAiConfig().baseUrl.replace(/\/+$/, "");
-  return `${baseUrl}/chat/completions`;
+  return buildAiUrl("chat/completions");
+}
+
+function aiModelsEndpoint() {
+  return buildAiUrl("models");
 }
 
 function aiSystemPrompt() {
@@ -2838,6 +2856,41 @@ function saveAiConfigFromForm() {
   renderSettings();
 }
 
+async function testAiConfig() {
+  saveAiConfigFromForm();
+  const config = normalizeAiConfig();
+  if (elements.aiConfigStatus) {
+    elements.aiConfigStatus.textContent = "正在测试模型连接...";
+  }
+  if (!config.apiKey || !config.baseUrl || !config.model) {
+    if (elements.aiConfigStatus) {
+      elements.aiConfigStatus.textContent = "测试失败：请先填写 Base URL、模型和 API Key。";
+    }
+    return;
+  }
+
+  try {
+    const response = await fetch(aiModelsEndpoint(), {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`
+      }
+    });
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "");
+      throw new Error(`HTTP ${response.status}${errorText ? `：${errorText.slice(0, 120)}` : ""}`);
+    }
+    if (elements.aiConfigStatus) {
+      elements.aiConfigStatus.textContent = `连接成功：${config.provider || "自定义"} / ${config.model}。聊天、策略分析和蒸馏会优先调用在线 AI。`;
+    }
+  } catch (error) {
+    const reason = error?.message || String(error);
+    if (elements.aiConfigStatus) {
+      elements.aiConfigStatus.textContent = `测试失败：${reason}。网页版若被浏览器跨域限制，请优先用软件版或后端代理调用模型。`;
+    }
+  }
+}
+
 function openPersonModal(personId = null) {
   const form = elements.personForm;
   const person = personId ? personById(personId) : null;
@@ -3585,11 +3638,16 @@ function renderDialogueThread(person) {
 function scrollDialogueToBottom(behavior = "smooth") {
   const thread = elements.chatThread;
   if (!thread) return;
-  window.requestAnimationFrame(() => {
+  const scroll = () => {
     thread.scrollTo({
       top: thread.scrollHeight,
       behavior
     });
+  };
+  window.requestAnimationFrame(() => {
+    scroll();
+    window.requestAnimationFrame(scroll);
+    window.setTimeout(scroll, 180);
   });
 }
 
@@ -4088,6 +4146,7 @@ function bindEvents() {
   });
   $("#deepseekPresetButton")?.addEventListener("click", applyDeepSeekPreset);
   $("#saveAiConfigButton")?.addEventListener("click", saveAiConfigFromForm);
+  $("#testAiConfigButton")?.addEventListener("click", testAiConfig);
   elements.aiEnabledToggle?.addEventListener("change", saveAiConfigFromForm);
   elements.dialogueSearchInput?.addEventListener("input", renderDialogueHistory);
   elements.autoReplyToggle?.addEventListener("change", () => {

@@ -217,7 +217,7 @@
 
         <section class="view view-settings" id="settingsView">
           <div class="settings-layout">
-            <section class="settings-module relation-settings-module">
+            <section class="settings-module relation-settings-module" id="relationSettingsModule">
               <p class="eyebrow">模板</p>
               <h2>默认关系分类</h2>
               <div id="categoryEditor" class="editor-list"></div>
@@ -226,7 +226,7 @@
                 <span>新增分类</span>
               </button>
             </section>
-            <section class="settings-module model-settings-module">
+            <section class="settings-module model-settings-module" id="modelSettingsModule">
               <p class="eyebrow">模型</p>
               <h2>模型接入</h2>
               <div class="principle-list">
@@ -276,13 +276,17 @@
                     <i data-lucide="save"></i>
                     <span>保存配置</span>
                   </button>
+                  <button class="ghost-button" id="testAiConfigButton" type="button">
+                    <i data-lucide="plug-zap"></i>
+                    <span>测试连接</span>
+                  </button>
                 </div>
                 <p class="meta-line" id="aiConfigStatus">当前使用本地模拟回复。正式上线建议通过后端代理调用模型，不在前端暴露 API Key。</p>
               </div>
             </section>
-            <section class="settings-module archive-settings-module export-guide featured-guide">
+            <section class="settings-module archive-settings-module export-guide featured-guide" id="distillGuideModule">
               <p class="eyebrow">资料</p>
-              <h2>资料仓库</h2>
+              <h2>蒸馏资料库</h2>
               <p>管理聊天记录导入、画像蒸馏和导出教程。人物详情与关系网详情都可以导入 TXT、CSV、JSON、Markdown、HTML 聊天记录文件；QQ 的 BAK/BAT 会尝试读取，但如果不是明文，需要先转成 TXT/HTML。</p>
               <div class="distill-rules">
                 <span>识别规则</span>
@@ -308,7 +312,7 @@
                 </article>
               </div>
             </section>
-            <section class="settings-module memory-settings-module">
+            <section class="settings-module memory-settings-module" id="memoryMigrationModule">
               <p class="eyebrow">迁移</p>
               <h2>记忆迁移</h2>
               <p>导出当前本地记忆，之后可以导入到另一台设备。后续接登录系统时，也会保留离线模式。</p>
