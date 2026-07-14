@@ -3523,6 +3523,12 @@ function resetDialogueRound(clearMode = true) {
 
 function renderDialogueThread(person) {
   if (!elements.chatThread) return;
+  if (!person) {
+    elements.chatThread.innerHTML = systemRow("还没有可对话的人物。请先在人际网或管理关系里新增人物。");
+    elements.replyOptions = null;
+    elements.opponentActualInput = null;
+    return;
+  }
   ensurePersonDialogueData(person);
   const mode = state.dialogueMode;
   const isReport = mode === "report";
