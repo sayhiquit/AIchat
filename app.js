@@ -148,7 +148,7 @@ const defaultState = {
   ]
 };
 
-let state = resetLoadedDialogueSimulation(loadState());
+let state = normalizeAppState(resetLoadedDialogueSimulation(loadState()));
 let sessionDialogueMessages = new Map();
 let lastGraphNodes = new Map();
 let personFocusTimer = null;
@@ -277,7 +277,66 @@ function resetLoadedDialogueSimulation(loaded) {
   };
 }
 
+function normalizeAppState(candidate = {}) {
+  const normalized = {
+    ...structuredClone(defaultState),
+    ...(candidate || {}),
+    userProfile: {
+      ...structuredClone(defaultState.userProfile),
+      ...(candidate?.userProfile || {})
+    },
+    aiConfig: {
+      ...structuredClone(defaultState.aiConfig),
+      ...(candidate?.aiConfig || {})
+    }
+  };
+
+  normalized.categories = Array.isArray(candidate.categories) && candidate.categories.length
+    ? candidate.categories
+        .filter((category) => category && (category.id || category.name))
+        .map((category, index) => ({
+          id: String(category.id || `category_${index}_${Date.now()}`),
+          name: String(category.name || "未命名分类"),
+          description: String(category.description || "")
+        }))
+    : structuredClone(defaultState.categories);
+  if (!normalized.categories.length) normalized.categories = structuredClone(defaultState.categories);
+
+  const categoryIds = new Set(normalized.categories.map((category) => category.id));
+  const fallbackCategoryId = normalized.categories[0]?.id || "work";
+  normalized.people = Array.isArray(candidate.people)
+    ? candidate.people
+        .filter((person) => person && (person.id || person.name))
+        .map((person, index) => ({
+          ...person,
+          id: String(person.id || `person_${index}_${Date.now()}`),
+          name: String(person.name || "未命名人物"),
+          categoryId: categoryIds.has(person.categoryId) ? person.categoryId : fallbackCategoryId,
+          importance: person.importance || "中",
+          profile: person.profile || {},
+          context: normalizePersonContext(person),
+          memories: Array.isArray(person.memories) ? person.memories : [],
+          chatHistory: Array.isArray(person.chatHistory) ? person.chatHistory : []
+        }))
+    : structuredClone(defaultState.people);
+
+  const personIds = new Set(normalized.people.map((person) => person.id));
+  if (!personIds.has(normalized.selectedPersonId)) normalized.selectedPersonId = normalized.people[0]?.id || null;
+  if (!categoryIds.has(normalized.selectedCategoryId) && normalized.selectedCategoryId !== "all") normalized.selectedCategoryId = "all";
+  if (!categoryIds.has(normalized.focusCategoryId)) normalized.focusCategoryId = null;
+  if (!personIds.has(normalized.focusPersonId)) normalized.focusPersonId = null;
+  if (normalized.pendingMemoryDraft && !personIds.has(normalized.pendingMemoryDraft.personId)) normalized.pendingMemoryDraft = null;
+  if (!["network", "manage", "person", "dialogue", "schedule", "settings"].includes(normalized.route)) normalized.route = "network";
+  if (!["graph", "manage"].includes(normalized.viewMode)) normalized.viewMode = "graph";
+  if (!["incoming", "report"].includes(normalized.dialogueMode)) normalized.dialogueMode = "incoming";
+  if (!Array.isArray(normalized.lessons)) normalized.lessons = [];
+  normalized.offlineMode = normalized.offlineMode !== false;
+  normalized.autoAiReply = normalized.autoAiReply !== false;
+  return normalized;
+}
+
 function saveState() {
+  state = normalizeAppState(state);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
@@ -1369,110 +1428,6 @@ function confirmDeletePerson() {
   saveState();
   render();
 }
-
-function renderPerson() {
-  renderCategoryRail(elements.personCategoryRail);
-  const person = personById(state.selectedPersonId);
-  if (!person) {
-    setRoute("network");
-    return;
-  }
-
-  elements.personDetail.innerHTML = `
-    <div class="profile-hero">
-      <section class="profile-summary">
-        <p class="eyebrow">${escapeHtml(categoryById(person.categoryId)?.name || "关系")}</p>
-        <h2>${escapeHtml(person.name)}</h2>
-        <p class="meta-line">${escapeHtml(person.relation || "未设置关系")} / 重要程度 ${escapeHtml(person.importance || "中")}</p>
-        <p class="meta-line">${escapeHtml(personContextLine(person))}</p>
-        <p class="meta-line">${escapeHtml(person.personality || "还没有性格画像。")}</p>
-        <div class="profile-actions">
-          <button class="primary-button" id="talkToPerson">
-            <i data-lucide="messages-square"></i>
-            <span>进入对话</span>
-          </button>
-          <button class="ghost-button" id="editPerson">
-            <i data-lucide="pencil"></i>
-            <span>编辑画像</span>
-          </button>
-          <button class="ghost-button" id="importPersonChatTop" type="button">
-            <i data-lucide="file-up"></i>
-            <span>导入聊天</span>
-          </button>
-          <input type="file" id="personChatImportTopInput" accept=".txt,.csv,.json,.md,.html,.htm,.bak,.bat,text/plain,text/csv,text/html,application/json" hidden />
-          <button class="ghost-button danger-button" id="deletePerson">
-            <i data-lucide="trash-2"></i>
-            <span>删除人物</span>
-          </button>
-        </div>
-      </section>
-      <section class="profile-notes">
-        <p class="eyebrow">人物背景</p>
-        <p>${escapeHtml(personBackgroundText(person))}</p>
-      </section>
-      <section class="profile-notes">
-        <p class="eyebrow">相处注意事项</p>
-        <p>${escapeHtml(person.notes || "暂无。")}</p>
-      </section>
-    </div>
-    <div class="insight-grid">
-      ${renderInsight("说话风格", person.profile?.communication)}
-      ${renderInsight("做事风格", person.profile?.work)}
-      ${renderInsight("好感触发", person.profile?.goodwill)}
-      ${renderInsight("避雷点", person.profile?.avoid)}
-      ${renderInsight("推荐回复结构", recommendStructure(person))}
-      ${renderInsight("关系策略", relationshipStrategy(person))}
-    </div>
-    <section class="memory-card">
-      <h3>历史蒸馏</h3>
-      <div class="memory-list">
-        ${(person.memories || []).length ? person.memories.map((memory) => `<p>${escapeHtml(memory.title)}：${escapeHtml(memory.text)}</p>`).join("") : "<p>还没有沉淀记录。</p>"}
-      </div>
-    </section>
-    <section class="memory-card distill-workbench">
-      <h3>蒸馏调整画像</h3>
-      <p class="meta-line">少量新聊天可以直接粘贴；几百到几千条历史记录建议导入文件。系统会自动识别常见“时间 / 昵称 / 内容”和“昵称：内容”格式，不需要你每句手动备注是谁说的。</p>
-      <div class="distill-rules">
-        <span>识别规则</span>
-        <p>能识别“我、本人、${escapeHtml(state.userProfile?.displayName || "用户")}”为我方；识别“${escapeHtml(person.name)}”为对方；群聊或昵称不稳定时，建议先导出与此人相关片段。</p>
-      </div>
-      <textarea id="personDistillInput" placeholder="例如：粘贴一段你们的聊天记录，或记录一次对方对你回复的真实反应。"></textarea>
-      <div class="distill-actions">
-        <button class="primary-button" id="personDistillButton">
-          <i data-lucide="sparkles"></i>
-          <span>蒸馏并调整画像</span>
-        </button>
-        <button class="ghost-button" id="importChatButton" type="button">
-          <i data-lucide="file-up"></i>
-          <span>导入聊天记录文件</span>
-        </button>
-        <input type="file" id="personChatImportInput" accept=".txt,.csv,.json,.md,.html,.htm,.bak,.bat,text/plain,text/csv,text/html,application/json" hidden />
-      </div>
-      <p class="meta-line" id="chatImportStatus">支持 TXT、CSV、JSON、Markdown、HTML，也会尝试读取 QQ 的 BAK/BAT；如果文件是备份或脚本，需要先转成可读文本再导入。</p>
-    </section>
-  `;
-
-  $("#talkToPerson").addEventListener("click", () => {
-    state.selectedPersonId = person.id;
-    setRoute("dialogue");
-  });
-  $("#editPerson").addEventListener("click", () => openPersonModal(person.id));
-  $("#deletePerson").addEventListener("click", () => deletePerson(person.id));
-  $("#importPersonChatTop").addEventListener("click", () => $("#personChatImportTopInput")?.click());
-  $("#personChatImportTopInput").addEventListener("change", async (event) => {
-    await importChatTranscriptFile(person.id, event.target.files?.[0]);
-    event.target.value = "";
-  });
-  $("#personDistillButton").addEventListener("click", async () => {
-    await distillPersonProfile(person.id, $("#personDistillInput").value, "person", { source: "manual" });
-  });
-  $("#importChatButton").addEventListener("click", () => $("#personChatImportInput")?.click());
-  $("#personChatImportInput").addEventListener("change", async (event) => {
-    await importChatTranscriptFile(person.id, event.target.files?.[0]);
-    event.target.value = "";
-  });
-}
-
 function renderInsight(title, text) {
   return `
     <section class="insight-card">
@@ -1516,374 +1471,6 @@ function relationshipStrategy(person) {
   if (category.includes("同事") || category.includes("客户")) return "把边界、时间点和责任写清楚，减少误会。";
   if (category.includes("亲人") || /亲近|家庭/.test(`${context.closeness}${context.roleWeight}`)) return "保留尊重感和连续关心，遇到分歧先降低对抗性。";
   return "保持真实和连续性，记住对方上次关心的事情。";
-}
-
-function renderDialogue() {
-  if (state.dialogueMode === "distill") state.dialogueMode = "incoming";
-  const person = personById(state.selectedPersonId);
-  elements.dialoguePersonSelect.innerHTML = state.people
-    .map((person) => `<option value="${person.id}" ${person.id === state.selectedPersonId ? "selected" : ""}>${escapeHtml(person.name)}</option>`)
-    .join("");
-
-  $$(".segment").forEach((segment) => {
-    segment.classList.toggle("active", segment.dataset.mode === state.dialogueMode);
-  });
-  if (elements.autoReplyToggle) {
-    elements.autoReplyToggle.checked = state.autoAiReply !== false;
-  }
-
-  if (elements.analysisTitle) {
-    elements.analysisTitle.textContent = state.dialogueMode === "report" ? "我方表达优化" : "对方意图分析";
-  }
-
-  renderDialogueThread(person, state.dialogueMode, elements.dialogueInput.value, elements.customReply.value);
-
-  if (!elements.replyOptions.innerHTML.trim()) {
-    renderGeneratedAdvice(buildAdvice(person, state.dialogueMode, ""));
-  }
-}
-
-function renderDialogueThread(person, mode, input = "", generated = "") {
-  const name = person?.name || "对方";
-  const content = input.trim();
-  const output = generated.trim();
-  const placeholder = mode === "report"
-    ? "写下你想说、想汇报、想试探表达的话。"
-    : "粘贴对方真实说的话，AI 会帮你判断意图并生成回复。";
-  const label = mode === "report" ? "我方述说 / 汇报草稿" : "对方所说 / 真实输入";
-  const inputRowClass = mode === "report" ? "chat-row outgoing" : "chat-row incoming";
-  const inputAvatar = mode === "report" ? shortUserName() : "TA";
-  const inputText = content || (mode === "report" ? "先写下你准备说的话。" : "先粘贴对方发来的话。");
-  const resultRow = output
-    ? mode === "report"
-      ? `
-        <div class="chat-row incoming simulated-response">
-          <div class="chat-avatar">TA</div>
-          <div class="chat-bubble">
-            <span class="bubble-label">${escapeHtml(name)} 可能这样回应</span>
-            <p>${escapeHtml(output)}</p>
-          </div>
-        </div>
-      `
-      : `
-        <div class="chat-row outgoing simulated-response">
-          <div class="chat-bubble">
-            <span class="bubble-label">建议回复</span>
-            <p>${escapeHtml(output)}</p>
-          </div>
-          <div class="chat-avatar">${escapeHtml(shortUserName())}</div>
-        </div>
-      `
-    : "";
-
-  elements.chatThread.innerHTML = `
-    <div class="${inputRowClass}">
-      ${mode === "report" ? "" : `<div class="chat-avatar">TA</div>`}
-      <div class="chat-bubble input-bubble">
-        <span class="bubble-label">${escapeHtml(label)}</span>
-        <textarea id="dialogueInput" placeholder="${escapeAttr(placeholder)}">${escapeHtml(content)}</textarea>
-        <p class="preview-line">${escapeHtml(inputText)}</p>
-      </div>
-      ${mode === "report" ? `<div class="chat-avatar">${escapeHtml(inputAvatar)}</div>` : ""}
-    </div>
-    ${resultRow}
-  `;
-  elements.dialogueInput = $("#dialogueInput");
-}
-
-function buildAdvice(person, mode, input) {
-  const content = input.trim();
-  const relation = person?.relation || "这段关系";
-  const name = person?.name || "对方";
-  const style = trimEndingPunctuation(person?.profile?.communication || person?.personality || "需要进一步观察");
-  const structure = recommendStructure(person || {});
-
-  if (mode === "report") {
-    return {
-      options: [
-        {
-          key: "A",
-          title: "对方认可",
-          text: `可以，你先把结论、风险和需要我判断的点列出来。时间节点也写清楚，我看完再决定怎么推进。`
-        },
-        {
-          key: "B",
-          title: "追问细节",
-          text: `这个说法还不够具体。你先补一下现在卡在哪里、会影响什么、需要谁配合，不然我不好判断优先级。`
-        },
-        {
-          key: "C",
-          title: "压缩表达",
-          text: `先别展开太多背景，直接说结论和下一步。需要我拍板的地方单独列出来。`
-        }
-      ],
-      analysis: `当前是“我方述说”的场景。右侧重点看你这段话哪里可以更清晰：面对${relation}，建议使用“${structure}”。如果信息还不完整，不要把完成时间说死，可以先承诺反馈节点。对方可能会关注：结论是否明确、责任边界是否清楚、下一步是否可执行。`
-    };
-  }
-
-  const ambiguity = /随便|看着办|尽快|有空|再说|你觉得|都行|差不多/.test(content);
-  return {
-    options: [
-      {
-        key: "A",
-        title: "稳妥版",
-        text: `${name}，我理解这个事情目前需要先确认清楚。我这边先梳理一下范围和时间点，再给你一个明确反馈，避免后面理解偏差。`
-      },
-      {
-        key: "B",
-        title: "亲和版",
-        text: `明白，我先看一下具体情况。为了别理解错，我会把关键点确认一下，再跟你同步一个更靠谱的回复。`
-      },
-      {
-        key: "C",
-        title: "边界版",
-        text: `收到。这个事项我可以先配合确认，但需要先明确范围、优先级和截止时间，这样后续推进会更稳。`
-      }
-    ],
-    analysis: ambiguity
-      ? `对方表达里有模糊词，可能不是单纯聊天，而是在试探你的态度、可投入程度或是否愿意承担。建议先确认边界，不要立刻承诺。对${name}的已知风格判断：${style}。`
-      : `这句话可以先按“诉求识别”处理：对方可能在要信息、要承诺、要情绪回应，或要你主动推进。面对${relation}，建议不要只回“好的”，最好补一个可执行的下一步。`
-  };
-}
-
-function renderGeneratedAdvice(advice) {
-  elements.replyOptions.innerHTML = advice.options
-    .map(
-      (option) => `
-        <div class="reply-option">
-          <button data-reply="${escapeAttr(option.text)}">
-            <strong><span class="choice-key">${option.key}</span>${escapeHtml(option.title)}</strong>
-            <p>${escapeHtml(option.text)}</p>
-          </button>
-        </div>
-      `
-    )
-    .join("");
-  elements.analysisBox.textContent = advice.analysis;
-  renderDialogueThread(
-    personById(state.selectedPersonId),
-    state.dialogueMode,
-    elements.dialogueInput?.value || "",
-    elements.customReply?.value || ""
-  );
-
-  elements.replyOptions.querySelectorAll("button").forEach((button) => {
-    button.addEventListener("click", () => {
-      elements.replyOptions.querySelectorAll(".reply-option").forEach((option) => option.classList.remove("selected"));
-      button.closest(".reply-option").classList.add("selected");
-      elements.customReply.value = button.dataset.reply;
-      renderDialogueThread(personById(state.selectedPersonId), state.dialogueMode, elements.dialogueInput.value, elements.customReply.value);
-    });
-  });
-}
-
-function saveDialogueMemory(kind) {
-  const person = personById(state.selectedPersonId);
-  if (!person) return;
-
-  const input = elements.dialogueInput.value.trim();
-  const reply = elements.customReply.value.trim();
-  const advice = elements.analysisBox.textContent.trim();
-  if (!input && !reply && !advice) return;
-
-  person.memories = person.memories || [];
-  person.memories.unshift({
-    title: kind === "reply" ? "真实回复反馈" : "新增互动记忆",
-    text: [input ? `Input: ${input}` : "", reply ? `Final reply: ${reply}` : "", advice ? `Analysis: ${advice}` : ""]
-      .filter(Boolean)
-      .join(" / ")
-      .slice(0, 260)
-  });
-
-  state.lessons.unshift(`和${person.name}互动后：${reply || advice}`.slice(0, 90));
-  saveState();
-  renderGeneratedAdvice(buildAdvice(person, state.dialogueMode, input));
-}
-
-function renderDialogue() {
-  if (state.dialogueMode === "distill") state.dialogueMode = "incoming";
-  const person = personById(state.selectedPersonId);
-  elements.dialoguePersonSelect.innerHTML = state.people
-    .map((person) => `<option value="${person.id}" ${person.id === state.selectedPersonId ? "selected" : ""}>${escapeHtml(person.name)}</option>`)
-    .join("");
-
-  $$(".segment").forEach((segment) => {
-    segment.classList.toggle("active", segment.dataset.mode === state.dialogueMode);
-  });
-  if (elements.autoReplyToggle) {
-    elements.autoReplyToggle.checked = state.autoAiReply !== false;
-  }
-
-  if (elements.analysisTitle) {
-    elements.analysisTitle.textContent = state.dialogueMode === "report" ? "模拟回应与回复优化" : "对方意图分析";
-  }
-
-  const input = elements.dialogueInput?.value || "";
-  const reply = elements.customReply?.value || "";
-  const opponent = elements.opponentActualInput?.value || state.dialogueOpponentText || "";
-  renderDialogueThread(person, state.dialogueMode, input, reply, opponent);
-
-  if (!elements.replyOptions.innerHTML.trim()) {
-    renderGeneratedAdvice(buildAdvice(person, state.dialogueMode, "", state.dialogueOpponentText || ""));
-  }
-}
-
-function renderDialogueThread(person, mode, input = "", generated = "", opponentText = "") {
-  const name = person?.name || "对方";
-  const content = input.trim();
-  const output = generated.trim();
-  const opponent = opponentText.trim();
-  const isReport = mode === "report";
-  const placeholder = isReport
-    ? "写下你想先说、想汇报、想试探表达的话。AI 会先模拟对方可能怎么回。"
-    : "粘贴对方真实说的话，AI 会判断意图并生成你的回复。";
-  const label = isReport ? "我方开场 / 想先说的话" : "对方所说 / 真实输入";
-  const inputRowClass = isReport ? "chat-row outgoing" : "chat-row incoming";
-  const inputText = content || (isReport ? "先写下你准备主动说的话。" : "先粘贴对方发来的话。");
-
-  const opponentRow = isReport && opponent
-    ? `
-      <div class="chat-row incoming opponent-response">
-        <div class="chat-avatar">TA</div>
-        <div class="chat-bubble opponent-bubble">
-          <div class="bubble-head">
-            <span class="bubble-label">${escapeHtml(name)} 的回应${state.dialogueEditingOpponent ? " / 修改为真实说法" : ""}</span>
-            <button class="mini-link bubble-edit" type="button" data-edit-opponent>${state.dialogueEditingOpponent ? "取消" : "修改"}</button>
-          </div>
-          ${
-            state.dialogueEditingOpponent
-              ? `
-                <textarea id="opponentActualInput" placeholder="把这里改成对方真实说的话，再生成回复。">${escapeHtml(opponent)}</textarea>
-                <button class="mini-link apply-opponent" type="button" data-apply-opponent>用这句话生成回复</button>
-              `
-              : `
-                <p>${escapeHtml(opponent)}</p>
-                <p class="preview-line">如果对方真实说法不同，点“修改”后替换，下面会重新生成更贴近真实语境的回复。</p>
-              `
-          }
-        </div>
-      </div>
-    `
-    : "";
-
-  const replyRow = output
-    ? `
-      <div class="chat-row outgoing simulated-response">
-        <div class="chat-bubble">
-          <span class="bubble-label">建议回复</span>
-          <p>${escapeHtml(output)}</p>
-        </div>
-        <div class="chat-avatar">${escapeHtml(shortUserName())}</div>
-      </div>
-    `
-    : "";
-
-  elements.chatThread.innerHTML = `
-    <div class="${inputRowClass}">
-      ${isReport ? "" : `<div class="chat-avatar">TA</div>`}
-      <div class="chat-bubble input-bubble">
-        <span class="bubble-label">${escapeHtml(label)}</span>
-        <textarea id="dialogueInput" placeholder="${escapeAttr(placeholder)}">${escapeHtml(content)}</textarea>
-        <p class="preview-line">${escapeHtml(inputText)}</p>
-      </div>
-      ${isReport ? `<div class="chat-avatar">${escapeHtml(shortUserName())}</div>` : ""}
-    </div>
-    ${opponentRow}
-    ${replyRow}
-  `;
-
-  elements.dialogueInput = $("#dialogueInput");
-  elements.opponentActualInput = $("#opponentActualInput");
-
-  const editButton = elements.chatThread.querySelector("[data-edit-opponent]");
-  if (editButton) {
-    editButton.addEventListener("click", () => {
-      const currentOpponent = elements.opponentActualInput?.value || state.dialogueOpponentText || opponent;
-      state.dialogueOpponentText = currentOpponent;
-      state.dialogueEditingOpponent = !state.dialogueEditingOpponent;
-      saveState();
-      renderDialogueThread(person, mode, elements.dialogueInput?.value || input, elements.customReply?.value || "", currentOpponent);
-    });
-  }
-
-  const applyButton = elements.chatThread.querySelector("[data-apply-opponent]");
-  if (applyButton) {
-    applyButton.addEventListener("click", () => {
-      const currentOpponent = elements.opponentActualInput?.value.trim() || opponent;
-      state.dialogueOpponentText = currentOpponent;
-      state.dialogueEditingOpponent = false;
-      elements.replyOptions.innerHTML = "";
-      elements.customReply.value = "";
-      saveState();
-      renderGeneratedAdvice(buildAdvice(person, mode, elements.dialogueInput?.value || input, currentOpponent));
-    });
-  }
-}
-
-function simulateOpponentReply(person, opening) {
-  const content = opening.trim();
-  const name = person?.name || "对方";
-  if (!content) return "";
-  if (/进度|截止|风险|方案|汇报|项目|结果/.test(content)) {
-    return "我先看结论和风险点。你把当前进度、卡点、需要我判断的地方列清楚，时间节点也同步一下。";
-  }
-  if (/抱歉|不好意思|误会|解释|沟通/.test(content)) {
-    return "我理解你的意思，但我更想知道这件事接下来怎么处理，以及怎么避免后面再出现类似情况。";
-  }
-  if (/约|吃饭|见面|有空|方便/.test(content)) {
-    return "可以先说下具体时间和事情，我看安排。如果只是简单聊聊，也可以先线上同步一下。";
-  }
-  return `${name}可能会先确认你的核心诉求：你希望我判断什么、配合什么，还是只需要了解这个情况？`;
-}
-
-function buildReplyOptions(person) {
-  const name = person?.name || "对方";
-  return [
-    {
-      key: "A",
-      title: "稳妥版",
-      text: `${name}，我理解这个事情目前需要先确认清楚。我这边先梳理一下范围和时间点，再给你一个明确反馈，避免后面理解偏差。`
-    },
-    {
-      key: "B",
-      title: "亲和版",
-      text: "明白，我先看一下具体情况。为了别理解错，我会把关键点确认一下，再跟你同步一个更靠谱的回复。"
-    },
-    {
-      key: "C",
-      title: "边界版",
-      text: "收到。这个事项我可以先配合确认，但需要先明确范围、优先级和截止时间，这样后续推进会更稳。"
-    }
-  ];
-}
-
-function buildAdvice(person, mode, input, opponentText = "") {
-  const content = input.trim();
-  const relation = person?.relation || "这段关系";
-  const name = person?.name || "对方";
-  const style = trimEndingPunctuation(person?.profile?.communication || person?.personality || "需要进一步观察");
-  const structure = recommendStructure(person || {});
-
-  if (mode === "report") {
-    const opponent = opponentText.trim() || simulateOpponentReply(person, content);
-    const analysis = opponent
-      ? `这是“我方开场后的一个来回”。上方气泡是对方可能的回应，也可以点“修改”替换成真实说法。接下来 A/B/C 都是在帮你回复对方这句话。面对${relation}，建议使用“${structure}”。对方可能关注：你是否说清楚诉求、责任边界和下一步。已知风格判断：${style}。`
-      : `先写下你想主动说的话，再点“生成选项”。AI 会先模拟${name}可能怎么回应，然后你可以把模拟内容改成真实说法，最后生成更贴近实际的回复。`;
-    return {
-      opponentText: opponent,
-      options: buildReplyOptions(person),
-      analysis
-    };
-  }
-
-  const ambiguity = /随便|看着办|尽快|有空|再说|你觉得|都行|差不多/.test(content);
-  return {
-    opponentText: "",
-    options: buildReplyOptions(person),
-    analysis: ambiguity
-      ? `对方表达里有模糊词，可能不是单纯聊天，而是在试探你的态度、可投入程度或是否愿意承担。建议先确认边界，不要立刻承诺。对${name}的已知风格判断：${style}。`
-      : `这句话可以先按“诉求识别”处理：对方可能在要信息、要承诺、要情绪回应，或要你主动推进。面对${relation}，建议不要只回“好的”，最好补一个可执行的下一步。`
-  };
 }
 
 function buildConversationAnalysis(person) {
@@ -2126,79 +1713,6 @@ async function buildAdviceWithAi(person, mode, input, opponentText = "") {
       analysis: `在线 AI 请求失败，已回退本地模拟：${error.message || error}\n\n${fallback.analysis}`
     };
   }
-}
-
-function renderGeneratedAdvice(advice) {
-  if (state.dialogueMode === "report" && advice.opponentText) {
-    state.dialogueOpponentText = advice.opponentText;
-    state.dialogueOpeningText = elements.dialogueInput?.value || state.dialogueOpeningText || "";
-  }
-
-  elements.replyOptions.innerHTML = advice.options
-    .map(
-      (option) => `
-        <div class="reply-option">
-          <button data-reply="${escapeAttr(option.text)}">
-            <strong><span class="choice-key">${option.key}</span>${escapeHtml(option.title)}</strong>
-            <p>${escapeHtml(option.text)}</p>
-          </button>
-        </div>
-      `
-    )
-    .join("");
-  elements.analysisBox.textContent = advice.analysis;
-
-  renderDialogueThread(
-    personById(state.selectedPersonId),
-    state.dialogueMode,
-    elements.dialogueInput?.value || "",
-    elements.customReply?.value || "",
-    state.dialogueMode === "report" ? state.dialogueOpponentText || advice.opponentText || "" : ""
-  );
-
-  elements.replyOptions.querySelectorAll("button").forEach((button) => {
-    button.addEventListener("click", () => {
-      elements.replyOptions.querySelectorAll(".reply-option").forEach((option) => option.classList.remove("selected"));
-      button.closest(".reply-option").classList.add("selected");
-      elements.customReply.value = button.dataset.reply;
-      renderDialogueThread(
-        personById(state.selectedPersonId),
-        state.dialogueMode,
-        elements.dialogueInput.value,
-        elements.customReply.value,
-        state.dialogueOpponentText || ""
-      );
-    });
-  });
-}
-
-function saveDialogueMemory(kind) {
-  const person = personById(state.selectedPersonId);
-  if (!person) return;
-
-  const input = elements.dialogueInput?.value.trim() || "";
-  const opponent = elements.opponentActualInput?.value.trim() || state.dialogueOpponentText || "";
-  const reply = elements.customReply.value.trim();
-  const advice = elements.analysisBox.textContent.trim();
-  if (!input && !opponent && !reply && !advice) return;
-
-  person.memories = person.memories || [];
-  person.memories.unshift({
-    title: kind === "reply" ? "真实回复反馈" : "新增互动记忆",
-    text: [
-      input ? `Opening/Input: ${input}` : "",
-      opponent ? `Opponent: ${opponent}` : "",
-      reply ? `Final reply: ${reply}` : "",
-      advice ? `Analysis: ${advice}` : ""
-    ]
-      .filter(Boolean)
-      .join(" / ")
-      .slice(0, 260)
-  });
-
-  state.lessons.unshift(`和${person.name}互动后：${reply || opponent || advice}`.slice(0, 90));
-  saveState();
-  renderGeneratedAdvice(buildAdvice(person, state.dialogueMode, input, opponent));
 }
 
 async function distillPersonProfile(personId, rawText, surface, options = {}) {
