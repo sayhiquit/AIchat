@@ -4,8 +4,11 @@ const childProcess = require("child_process");
 
 const root = path.resolve(__dirname, "..");
 const appFile = path.join(root, "app.js");
+const electronMainFile = path.join(root, "electron", "main.js");
+const electronPreloadFile = path.join(root, "electron", "preload.js");
 const htmlFile = path.join(root, "index.html");
 const packageFile = path.join(root, "package.json");
+const requiredDocs = ["README.md", "DESKTOP_APP.md", "PROJECT_PROGRESS.md", "TEST_CHECKLIST.md"];
 
 function fail(message) {
   console.error(`FAIL ${message}`);
@@ -34,8 +37,18 @@ try {
   fail(`app.js syntax check failed:\n${String(error.stderr || error.message)}`);
 }
 
+for (const file of [electronMainFile, electronPreloadFile]) {
+  try {
+    childProcess.execFileSync(process.execPath, ["--check", file], { stdio: "pipe" });
+    pass(`${path.relative(root, file)} syntax is valid`);
+  } catch (error) {
+    fail(`${path.relative(root, file)} syntax check failed:\n${String(error.stderr || error.message)}`);
+  }
+}
+
 const html = read(htmlFile);
 const app = read(appFile);
+const electronMain = read(electronMainFile);
 const ids = [...html.matchAll(/id="([^"]+)"/g)].map((match) => match[1]);
 const duplicateIds = [...new Set(ids.filter((id, index) => ids.indexOf(id) !== index))];
 if (duplicateIds.length) fail(`duplicate HTML ids: ${duplicateIds.join(", ")}`);
@@ -65,6 +78,13 @@ const requiredIds = [
 const missingIds = requiredIds.filter((id) => !ids.includes(id));
 if (missingIds.length) fail(`missing required HTML ids: ${missingIds.join(", ")}`);
 else pass("required HTML controls exist");
+
+const missingDocs = requiredDocs.filter((file) => !fs.existsSync(path.join(root, file)));
+if (missingDocs.length) fail(`missing required docs: ${missingDocs.join(", ")}`);
+else pass("required docs exist");
+
+if (!electronMain.includes('title: "AI人际管家"')) fail("desktop window title is not normalized");
+else pass("desktop title is normalized");
 
 const sensitivePatterns = [
   /sk-[A-Za-z0-9_-]{10,}/,
