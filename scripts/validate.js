@@ -83,7 +83,9 @@ const missingDocs = requiredDocs.filter((file) => !fs.existsSync(path.join(root,
 if (missingDocs.length) fail(`missing required docs: ${missingDocs.join(", ")}`);
 else pass("required docs exist");
 
-if (!electronMain.includes('title: "AI人际管家"')) fail("desktop window title is not normalized");
+if (!electronMain.includes('const APP_TITLE = "\\u0041\\u0049\\u4eba\\u9645\\u7ba1\\u5bb6";')) {
+  fail("desktop window title is not normalized");
+}
 else pass("desktop title is normalized");
 
 const sensitivePatterns = [

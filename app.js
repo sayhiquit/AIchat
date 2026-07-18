@@ -154,6 +154,7 @@ let lastGraphNodes = new Map();
 let personFocusTimer = null;
 let pendingDeletePersonId = null;
 let graphRenderToken = 0;
+let lastStateSaveError = "";
 const graphNodeExitTimers = new Map();
 const graphEdgeTimers = new Map();
 const presetPersonIds = new Set(defaultState.people.map((person) => person.id));
@@ -337,7 +338,15 @@ function normalizeAppState(candidate = {}) {
 
 function saveState() {
   state = normalizeAppState(state);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    lastStateSaveError = "";
+  } catch (error) {
+    lastStateSaveError = error?.message || "本地存储不可用";
+    if (elements.memoryStatus) {
+      elements.memoryStatus.textContent = `保存失败：${lastStateSaveError}。请先导出记忆，避免刷新后丢失。`;
+    }
+  }
 }
 
 function categoryById(id) {
@@ -2308,7 +2317,9 @@ function renderSettings() {
     elements.offlineModeToggle.checked = state.offlineMode !== false;
   }
   if (elements.memoryStatus) {
-    elements.memoryStatus.textContent = state.offlineMode === false ? "云同步预留模式：当前仍只保存在本地。" : "离线模式开启：当前记忆只保存在本地浏览器。";
+    elements.memoryStatus.textContent = lastStateSaveError
+      ? `保存失败：${lastStateSaveError}。请先导出记忆，避免刷新后丢失。`
+      : state.offlineMode === false ? "云同步预留模式：当前仍只保存在本地。" : "离线模式开启：当前记忆只保存在本地浏览器。";
   }
   if (elements.storageLocation) {
     elements.storageLocation.textContent = window.desktopBridge
