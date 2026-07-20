@@ -1,6 +1,6 @@
 {
   "name": "ai-relationship-butler",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "AI 人际管家桌面版",
   "main": "electron/main.js",
   "private": true,
