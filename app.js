@@ -292,11 +292,12 @@ function normalizeAppState(candidate = {}) {
     }
   };
 
+  const usedCategoryIds = new Set();
   normalized.categories = Array.isArray(candidate.categories) && candidate.categories.length
     ? candidate.categories
         .filter((category) => category && (category.id || category.name))
         .map((category, index) => ({
-          id: String(category.id || `category_${index}_${Date.now()}`),
+          id: uniqueStateId(category.id || `category_${index}`, usedCategoryIds, "category"),
           name: String(category.name || "未命名分类"),
           description: String(category.description || "")
         }))
@@ -305,12 +306,13 @@ function normalizeAppState(candidate = {}) {
 
   const categoryIds = new Set(normalized.categories.map((category) => category.id));
   const fallbackCategoryId = normalized.categories[0]?.id || "work";
+  const usedPersonIds = new Set();
   normalized.people = Array.isArray(candidate.people)
     ? candidate.people
         .filter((person) => person && (person.id || person.name))
         .map((person, index) => ({
           ...person,
-          id: String(person.id || `person_${index}_${Date.now()}`),
+          id: uniqueStateId(person.id || `person_${index}`, usedPersonIds, "person"),
           name: String(person.name || "未命名人物"),
           categoryId: categoryIds.has(person.categoryId) ? person.categoryId : fallbackCategoryId,
           importance: person.importance || "中",
@@ -334,6 +336,22 @@ function normalizeAppState(candidate = {}) {
   normalized.offlineMode = normalized.offlineMode !== false;
   normalized.autoAiReply = normalized.autoAiReply !== false;
   return normalized;
+}
+
+function uniqueStateId(rawId, usedIds, fallbackPrefix) {
+  const base = String(rawId || fallbackPrefix)
+    .trim()
+    .replace(/[^\w-]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "") || fallbackPrefix;
+  let id = base;
+  let index = 2;
+  while (usedIds.has(id)) {
+    id = `${base}_${index}`;
+    index += 1;
+  }
+  usedIds.add(id);
+  return id;
 }
 
 function saveState() {

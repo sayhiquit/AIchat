@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const childProcess = require("child_process");
+const vm = require("vm");
 
 const root = path.resolve(__dirname, "..");
 const appFile = path.join(root, "app.js");
@@ -87,6 +88,48 @@ if (!electronMain.includes('const APP_TITLE = "\\u0041\\u0049\\u4eba\\u9645\\u7b
   fail("desktop window title is not normalized");
 }
 else pass("desktop title is normalized");
+
+try {
+  const appWithoutStartup = app.replace(/\nbindEvents\(\);\s*\nrender\(\);\s*$/m, "");
+  const sandbox = {
+    structuredClone,
+    Date,
+    Math,
+    JSON,
+    String,
+    Array,
+    Set,
+    Map,
+    console,
+    localStorage: { getItem: () => null, setItem: () => {} },
+    document: { querySelector: () => null, querySelectorAll: () => [] },
+    window: { confirm: () => true, setTimeout: () => {}, requestAnimationFrame: (callback) => callback() }
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(appWithoutStartup, sandbox);
+  const normalized = sandbox.normalizeAppState({
+    categories: [
+      { id: "dup", name: "A" },
+      { id: "dup", name: "B" }
+    ],
+    people: [
+      { id: "same", name: "Person A", categoryId: "dup" },
+      { id: "same", name: "Person B", categoryId: "missing" }
+    ],
+    selectedPersonId: "missing"
+  });
+  const categoryIds = normalized.categories.map((category) => category.id);
+  const personIds = normalized.people.map((person) => person.id);
+  const hasDuplicateCategory = new Set(categoryIds).size !== categoryIds.length;
+  const hasDuplicatePerson = new Set(personIds).size !== personIds.length;
+  if (hasDuplicateCategory || hasDuplicatePerson || normalized.selectedPersonId !== personIds[0]) {
+    fail("state normalization failed duplicate-id recovery");
+  } else {
+    pass("state normalization recovers duplicate ids");
+  }
+} catch (error) {
+  fail(`state normalization smoke test failed: ${error.message}`);
+}
 
 const sensitivePatterns = [
   /sk-[A-Za-z0-9_-]{10,}/,
