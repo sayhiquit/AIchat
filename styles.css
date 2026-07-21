@@ -1286,6 +1286,123 @@ button.brand-mark {
   font-size: 13px;
 }
 
+.manage-filter-bar,
+.schedule-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 140px 150px;
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.manage-filter-bar label,
+.schedule-form label {
+  display: grid;
+  gap: 5px;
+}
+
+.schedule-form {
+  grid-template-columns: 112px minmax(220px, 1fr) 170px auto;
+  margin: 12px 0;
+}
+
+.schedule-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.time-row.done {
+  opacity: 0.66;
+}
+
+.time-row.done .schedule-event h3 {
+  text-decoration: line-through;
+}
+
+.time-row.delayed .event-type {
+  background: rgba(217, 154, 53, 0.16);
+}
+
+.time-row.ignored {
+  opacity: 0.5;
+}
+
+.danger-link {
+  color: #b92f26;
+}
+
+.diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.diagnostic-item {
+  display: grid;
+  gap: 5px;
+  min-height: 72px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.diagnostic-item span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.diagnostic-item strong {
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.chat-import-preview {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(47, 159, 145, 0.28);
+  border-radius: var(--radius);
+  background: rgba(47, 159, 145, 0.08);
+}
+
+.preview-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.preview-head strong {
+  color: var(--ink);
+}
+
+.preview-lines {
+  display: grid;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.preview-lines p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .dialogue-layout {
   display: grid;
   grid-template-columns: 236px minmax(0, 1fr) 300px;

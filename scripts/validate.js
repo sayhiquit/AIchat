@@ -74,7 +74,14 @@ const requiredIds = [
   "memoryNote",
   "aiEnabledToggle",
   "testAiConfigButton",
-  "importMemoryInput"
+  "importMemoryInput",
+  "manageSearchInput",
+  "manageImportanceFilter",
+  "manageSortSelect",
+  "scheduleForm",
+  "exportEncryptedMemoryButton",
+  "diagnosticsPanel",
+  "runDiagnosticsButton"
 ];
 const missingIds = requiredIds.filter((id) => !ids.includes(id));
 if (missingIds.length) fail(`missing required HTML ids: ${missingIds.join(", ")}`);

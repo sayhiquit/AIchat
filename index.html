@@ -106,6 +106,30 @@
               </div>
             </div>
             <div class="manage-category-editor" id="manageCategoryEditor"></div>
+            <div class="manage-filter-bar">
+              <label>
+                <span>搜索人物</span>
+                <input id="manageSearchInput" placeholder="姓名 / 关系 / 背景" />
+              </label>
+              <label>
+                <span>重要程度</span>
+                <select id="manageImportanceFilter">
+                  <option value="all">全部</option>
+                  <option value="高">高</option>
+                  <option value="中">中</option>
+                  <option value="低">低</option>
+                </select>
+              </label>
+              <label>
+                <span>排序</span>
+                <select id="manageSortSelect">
+                  <option value="recent">最近互动</option>
+                  <option value="importance">重要程度</option>
+                  <option value="name">姓名</option>
+                  <option value="profile">画像完整度</option>
+                </select>
+              </label>
+            </div>
             <div class="person-grid" id="personGrid"></div>
           </section>
         </section>
@@ -198,6 +222,15 @@
               <h2>关系维护节奏</h2>
               <span class="schedule-date" id="scheduleDate"></span>
               <div id="monthCalendar" class="month-calendar"></div>
+              <form class="schedule-form" id="scheduleForm">
+                <input name="time" type="time" value="09:30" aria-label="时间" />
+                <input name="title" placeholder="新增日程，例如：给张总同步项目风险" required />
+                <select name="personId" aria-label="绑定人物"></select>
+                <button class="primary-button" type="submit">
+                  <i data-lucide="plus"></i>
+                  <span>新增</span>
+                </button>
+              </form>
               <div id="todoList" class="schedule-timeline"></div>
             </section>
             <aside class="schedule-side">
@@ -321,6 +354,10 @@
                   <i data-lucide="download"></i>
                   <span>导出记忆</span>
                 </button>
+                <button class="ghost-button" id="exportEncryptedMemoryButton">
+                  <i data-lucide="lock-keyhole"></i>
+                  <span>加密导出</span>
+                </button>
                 <button class="ghost-button" id="importMemoryButton">
                   <i data-lucide="upload"></i>
                   <span>导入记忆</span>
@@ -333,6 +370,17 @@
               <input type="file" id="importMemoryInput" accept="application/json,.json" hidden />
               <p class="storage-location" id="storageLocation">当前存储位置：本地浏览器 localStorage。</p>
               <p class="meta-line" id="memoryStatus">当前记忆保存在本地浏览器。</p>
+            </section>
+            <section class="settings-module diagnostics-settings-module" id="diagnosticsModule">
+              <p class="eyebrow">诊断</p>
+              <h2>软件状态</h2>
+              <div class="diagnostics-grid" id="diagnosticsPanel"></div>
+              <div class="data-actions">
+                <button class="ghost-button" id="runDiagnosticsButton" type="button">
+                  <i data-lucide="activity"></i>
+                  <span>刷新诊断</span>
+                </button>
+              </div>
             </section>
           </div>
         </section>

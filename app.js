@@ -23,6 +23,14 @@ const defaultState = {
   dialogueIntentAnalysis: "",
   dialogueEditingMessageId: "",
   pendingMemoryDraft: null,
+  pendingChatImport: null,
+  manageFilters: {
+    keyword: "",
+    importance: "all",
+    sort: "recent"
+  },
+  manualSchedules: [],
+  lastBackupAt: "",
   autoAiReply: true,
   aiConfig: {
     enabled: false,
@@ -182,6 +190,9 @@ const elements = {
   personCategoryRail: $("#personCategoryRail"),
   directoryTitle: $("#directoryTitle"),
   manageCategoryEditor: $("#manageCategoryEditor"),
+  manageSearchInput: $("#manageSearchInput"),
+  manageImportanceFilter: $("#manageImportanceFilter"),
+  manageSortSelect: $("#manageSortSelect"),
   personGrid: $("#personGrid"),
   personDetail: $("#personDetail"),
   dialoguePersonSelect: $("#dialoguePersonSelect"),
@@ -202,6 +213,7 @@ const elements = {
   lessonList: $("#lessonList"),
   weeklyPlan: $("#weeklyPlan"),
   scheduleDate: $("#scheduleDate"),
+  scheduleForm: $("#scheduleForm"),
   monthCalendar: $("#monthCalendar"),
   categoryEditor: $("#categoryEditor"),
   aiEnabledToggle: $("#aiEnabledToggle"),
@@ -213,6 +225,7 @@ const elements = {
   importMemoryInput: $("#importMemoryInput"),
   memoryStatus: $("#memoryStatus"),
   storageLocation: $("#storageLocation"),
+  diagnosticsPanel: $("#diagnosticsPanel"),
   offlineModeToggle: $("#offlineModeToggle"),
   personModal: $("#personModal"),
   personForm: $("#personForm"),
@@ -333,6 +346,32 @@ function normalizeAppState(candidate = {}) {
   if (!["graph", "manage"].includes(normalized.viewMode)) normalized.viewMode = "graph";
   if (!["incoming", "report"].includes(normalized.dialogueMode)) normalized.dialogueMode = "incoming";
   if (!Array.isArray(normalized.lessons)) normalized.lessons = [];
+  normalized.manageFilters = {
+    keyword: "",
+    importance: "all",
+    sort: "recent",
+    ...(candidate.manageFilters || {})
+  };
+  if (!["all", "高", "中", "低"].includes(normalized.manageFilters.importance)) normalized.manageFilters.importance = "all";
+  if (!["recent", "importance", "name", "profile"].includes(normalized.manageFilters.sort)) normalized.manageFilters.sort = "recent";
+  normalized.manualSchedules = Array.isArray(candidate.manualSchedules)
+    ? candidate.manualSchedules
+        .filter((item) => item && item.title)
+        .map((item, index) => ({
+          id: String(item.id || `schedule_${index}_${Date.now()}`),
+          time: item.time || "09:30",
+          duration: item.duration || "10 分钟",
+          type: item.type || "手动",
+          title: String(item.title || "未命名日程"),
+          detail: String(item.detail || "手动添加的关系维护事项。"),
+          personId: personIds.has(item.personId) ? item.personId : "",
+          status: ["todo", "done", "delayed", "ignored"].includes(item.status) ? item.status : "todo",
+          createdAt: item.createdAt || new Date().toISOString(),
+          updatedAt: item.updatedAt || ""
+        }))
+    : [];
+  normalized.lastBackupAt = candidate.lastBackupAt || "";
+  if (normalized.pendingChatImport && !personIds.has(normalized.pendingChatImport.personId)) normalized.pendingChatImport = null;
   normalized.offlineMode = normalized.offlineMode !== false;
   normalized.autoAiReply = normalized.autoAiReply !== false;
   return normalized;
@@ -1304,11 +1343,12 @@ function renderManage() {
   const selected = categoryById(state.selectedCategoryId);
   elements.directoryTitle.textContent = selected ? selected.name : "全部关系";
   renderCategoryEditor(elements.manageCategoryEditor, { compact: true });
+  renderManageFilters();
 
-  const people = peopleInCategory(state.selectedCategoryId);
+  const people = filteredManagePeople();
   elements.personGrid.innerHTML = people.length
     ? people.map(renderPersonCard).join("")
-    : `<div class="memory-card"><h3>这个分类还没有人物</h3><p>添加一个真实联系人，AI 管家就能开始沉淀相处经验。</p></div>`;
+    : `<div class="memory-card"><h3>没有匹配的人物</h3><p>可以调整搜索词、重要程度筛选，或添加一个真实联系人。</p></div>`;
 
   elements.personGrid.querySelectorAll(".person-card").forEach((card) => {
     card.addEventListener("click", () => {
@@ -1330,6 +1370,62 @@ function renderManage() {
       if (action === "delete") deletePerson(personId);
     });
   });
+}
+
+function renderManageFilters() {
+  const filters = state.manageFilters || {};
+  if (elements.manageSearchInput) elements.manageSearchInput.value = filters.keyword || "";
+  if (elements.manageImportanceFilter) elements.manageImportanceFilter.value = filters.importance || "all";
+  if (elements.manageSortSelect) elements.manageSortSelect.value = filters.sort || "recent";
+}
+
+function filteredManagePeople() {
+  const filters = state.manageFilters || {};
+  const keyword = String(filters.keyword || "").trim().toLowerCase();
+  const importance = filters.importance || "all";
+  const sort = filters.sort || "recent";
+  const people = peopleInCategory(state.selectedCategoryId).filter((person) => {
+    const context = normalizePersonContext(person);
+    const haystack = [
+      person.name,
+      person.relation,
+      person.importance,
+      categoryById(person.categoryId)?.name,
+      person.personality,
+      person.notes,
+      context.roleWeight,
+      context.closeness,
+      context.contactFrequency,
+      context.background,
+      person.profile?.communication,
+      person.profile?.work,
+      person.profile?.goodwill,
+      person.profile?.avoid
+    ].filter(Boolean).join(" ").toLowerCase();
+    return (!keyword || haystack.includes(keyword)) && (importance === "all" || person.importance === importance);
+  });
+
+  return people.sort((a, b) => {
+    if (sort === "importance") return importanceWeight(b.importance) - importanceWeight(a.importance);
+    if (sort === "name") return a.name.localeCompare(b.name, "zh-CN");
+    if (sort === "profile") return profileCompleteness(b) - profileCompleteness(a);
+    return latestPersonActivity(b) - latestPersonActivity(a);
+  });
+}
+
+function profileCompleteness(person) {
+  return ["communication", "work", "goodwill", "avoid"].filter((key) => person.profile?.[key]).length
+    + (person.personality ? 1 : 0)
+    + (normalizePersonContext(person).background ? 1 : 0)
+    + ((person.memories || []).length ? 1 : 0);
+}
+
+function latestPersonActivity(person) {
+  const dates = [
+    ...(person.chatHistory || []).map((message) => message.savedAt || message.updatedAt || message.createdAt),
+    ...(person.memories || []).map((memory) => memory.updatedAt || memory.createdAt)
+  ].filter(Boolean).map((value) => new Date(value).getTime()).filter(Number.isFinite);
+  return dates.length ? Math.max(...dates) : 0;
 }
 
 function renderCategoryEditor(target, options = {}) {
@@ -1645,6 +1741,10 @@ function aiSystemPrompt() {
   return [
     "你是一个中文人际沟通助手，帮助用户判断对方意图、生成高情商且真实可执行的回复。",
     "不要操控他人，不要把心理分析当事实，要用“可能、倾向、建议”表达不确定性。",
+    "先判断用户是在要“行动策略”还是要“发送给对方的话”。如果是行动策略，不要把用户的问题改写成要发给对方的句子。",
+    "回复建议要贴合人物背景、关系分量、亲近程度、来往频率、历史记忆和当前上下文。",
+    "选项 A/B/C 应体现不同沟通策略：稳妥推进、亲和缓冲、边界确认，不能只是换同义词。",
+    "如果信息不足，要在 analysis 里指出缺口，并给可确认的问题或下一步。",
     "必须只返回 JSON，不要 Markdown，不要解释。",
     "JSON 格式：{\"opponentText\":\"...\",\"analysis\":\"...\",\"options\":[{\"key\":\"A\",\"title\":\"稳妥版\",\"text\":\"...\"},{\"key\":\"B\",\"title\":\"亲和版\",\"text\":\"...\"},{\"key\":\"C\",\"title\":\"边界版\",\"text\":\"...\"}]}",
     "options 必须正好 3 条，key 必须是 A、B、C。"
@@ -1794,6 +1894,8 @@ function profileDistillSystemPrompt() {
     "你是一个中文人际关系画像蒸馏助手。",
     "你会从聊天记录中总结对方的说话风格、做事风格、好感触发、避雷点和相处注意事项。",
     "用户手动填写的人物背景、关系分量、亲近程度和来往频率是重要上下文，不要忽略；但不要擅自改写这些事实。",
+    "优先总结稳定、反复出现的模式；对偶发情绪、单句反应、玩笑话要降低权重。",
+    "如果聊天记录中我方/对方身份不清楚，要在 notes 或 memoryText 里提示样本置信度不足。",
     "不要把猜测当事实，要用“倾向、可能、建议”表达不确定性。",
     "只返回 JSON，不要 Markdown，不要解释。",
     "JSON 格式：{\"communication\":\"...\",\"work\":\"...\",\"goodwill\":\"...\",\"avoid\":\"...\",\"notes\":\"...\",\"memoryText\":\"...\"}",
@@ -1874,6 +1976,23 @@ async function importChatTranscriptFile(personId, file, surface = "person") {
     assertReadableChatText(rawText, file.name);
     const parsed = parseChatTranscript(rawText, person, file.name);
     if (!parsed.distillText.trim()) throw new Error("文件中没有可识别的文本内容");
+    if (surface === "person") {
+      state.pendingChatImport = {
+        personId,
+        fileName: file.name,
+        distillText: parsed.distillText,
+        stats: parsed.stats,
+        preview: parsed.messages.slice(0, 20).map((message) => ({
+          role: message.role,
+          speaker: message.speaker,
+          text: message.text.slice(0, 160)
+        })),
+        createdAt: new Date().toISOString()
+      };
+      saveState();
+      renderPerson();
+      return;
+    }
     if (statusEl) {
       statusEl.textContent = `已识别 ${parsed.stats.total} 条消息：我方 ${parsed.stats.self}，对方 ${parsed.stats.opponent}，未知 ${parsed.stats.unknown}。正在蒸馏...`;
     }
@@ -1888,6 +2007,25 @@ async function importChatTranscriptFile(personId, file, surface = "person") {
   } catch (error) {
     if (statusEl) statusEl.textContent = `导入失败：${error.message || error}`;
   }
+}
+
+async function confirmPendingChatImport() {
+  const pending = state.pendingChatImport;
+  const person = personById(pending?.personId);
+  if (!pending || !person) return;
+  await distillPersonProfile(person.id, pending.distillText, "person", {
+    source: "file",
+    title: `导入蒸馏：${pending.fileName}`
+  });
+  state.pendingChatImport = null;
+  saveState();
+  renderPerson();
+}
+
+function cancelPendingChatImport() {
+  state.pendingChatImport = null;
+  saveState();
+  renderPerson();
 }
 
 async function readTextFile(file) {
@@ -2155,6 +2293,7 @@ function renderSchedule() {
     });
   }
   renderMonthCalendar(today);
+  renderScheduleForm();
 
   const scheduleItems = buildScheduleItems();
   elements.todoList.innerHTML = scheduleItems.length
@@ -2192,6 +2331,18 @@ function renderSchedule() {
       setRoute("person");
     });
   });
+  elements.todoList.querySelectorAll("[data-schedule-action]").forEach((button) => {
+    button.addEventListener("click", () => updateManualSchedule(button.dataset.scheduleId, button.dataset.scheduleAction));
+  });
+}
+
+function renderScheduleForm() {
+  const form = elements.scheduleForm;
+  if (!form) return;
+  form.elements.personId.innerHTML = [
+    `<option value="">不绑定人物</option>`,
+    ...state.people.map((person) => `<option value="${escapeAttr(person.id)}">${escapeHtml(person.name)}</option>`)
+  ].join("");
 }
 
 function renderMonthCalendar(today = new Date()) {
@@ -2256,7 +2407,7 @@ function buildScheduleItems() {
   const social = rankedPeople.find((person) => ["friends", "family"].includes(person.categoryId)) || rankedPeople[2];
   const peopleToReview = rankedPeople.slice(0, 3).map((person) => person.name).join("、");
 
-  return [
+  const autoItems = [
     primary && {
       time: "09:30",
       duration: "15 分钟",
@@ -2295,12 +2446,22 @@ function buildScheduleItems() {
       title: "记录今天的人际反馈",
       detail: peopleToReview ? `回看 ${peopleToReview} 的互动，有新信息就补进画像或记忆。` : "记录今天遇到的模糊表达、有效回复和踩雷点。"
     }
-  ].filter(Boolean);
+  ].filter(Boolean).map((item, index) => ({ ...item, id: `auto_${index}`, source: "auto", status: "todo" }));
+
+  const manualItems = (state.manualSchedules || []).map((item) => ({
+    ...item,
+    source: "manual",
+    duration: item.duration || "10 分钟",
+    type: item.status === "done" ? "已完成" : item.status === "delayed" ? "延期" : item.status === "ignored" ? "忽略" : item.type || "手动"
+  }));
+
+  return [...manualItems, ...autoItems].sort((a, b) => String(a.time || "").localeCompare(String(b.time || "")));
 }
 
 function renderScheduleItem(item) {
+  const statusClass = item.status && item.status !== "todo" ? ` ${item.status}` : "";
   return `
-    <article class="time-row">
+    <article class="time-row${statusClass}">
       <div class="time-slot">
         <strong>${escapeHtml(item.time)}</strong>
         <span>${escapeHtml(item.duration)}</span>
@@ -2312,9 +2473,53 @@ function renderScheduleItem(item) {
         </div>
         <h3>${escapeHtml(item.title)}</h3>
         <p>${escapeHtml(item.detail)}</p>
+        ${item.source === "manual" ? `
+          <div class="schedule-actions">
+            <button class="mini-link" data-schedule-id="${escapeAttr(item.id)}" data-schedule-action="done">完成</button>
+            <button class="mini-link" data-schedule-id="${escapeAttr(item.id)}" data-schedule-action="delayed">延期</button>
+            <button class="mini-link" data-schedule-id="${escapeAttr(item.id)}" data-schedule-action="ignored">忽略</button>
+            <button class="mini-link danger-link" data-schedule-id="${escapeAttr(item.id)}" data-schedule-action="delete">删除</button>
+          </div>
+        ` : ""}
       </div>
     </article>
   `;
+}
+
+function addManualScheduleFromForm() {
+  const form = elements.scheduleForm;
+  if (!form) return;
+  const title = form.elements.title.value.trim();
+  if (!title) return;
+  const person = personById(form.elements.personId.value);
+  state.manualSchedules.unshift({
+    id: `schedule_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    time: form.elements.time.value || "09:30",
+    duration: "10 分钟",
+    type: "手动",
+    title,
+    detail: person ? `绑定人物：${person.name}。建议结合此人的画像准备沟通。` : "手动添加的关系维护事项。",
+    personId: person?.id || "",
+    status: "todo",
+    createdAt: new Date().toISOString()
+  });
+  form.elements.title.value = "";
+  form.elements.personId.value = "";
+  saveState();
+  renderSchedule();
+}
+
+function updateManualSchedule(scheduleId, action) {
+  const item = (state.manualSchedules || []).find((schedule) => schedule.id === scheduleId);
+  if (!item) return;
+  if (action === "delete") {
+    state.manualSchedules = state.manualSchedules.filter((schedule) => schedule.id !== scheduleId);
+  } else {
+    item.status = action;
+    item.updatedAt = new Date().toISOString();
+  }
+  saveState();
+  renderSchedule();
 }
 
 function buildWeeklyPlan() {
@@ -2347,6 +2552,41 @@ function renderSettings() {
 
   renderAiConfig();
   renderCategoryEditor(elements.categoryEditor);
+  renderDiagnostics();
+}
+
+function renderDiagnostics() {
+  if (!elements.diagnosticsPanel) return;
+  const memoryCount = state.people.reduce((sum, person) => sum + (person.memories || []).length, 0);
+  const chatCount = state.people.reduce((sum, person) => sum + (person.chatHistory || []).length, 0);
+  const config = normalizeAiConfig();
+  const aiReady = config.enabled && config.apiKey && config.baseUrl && config.model;
+  const storageLabel = window.desktopBridge ? "%APPDATA%\\AI人际管家" : "localStorage";
+  const lastBackup = state.lastBackupAt ? new Date(state.lastBackupAt).toLocaleString("zh-CN") : "尚未备份";
+  const diagnostics = [
+    ["版本", appVersion()],
+    ["存储位置", storageLabel],
+    ["分类数量", state.categories.length],
+    ["人物数量", state.people.length],
+    ["记忆数量", memoryCount],
+    ["真实对话", chatCount],
+    ["手动日程", (state.manualSchedules || []).length],
+    ["AI 状态", aiReady ? "在线配置可用" : "本地模拟/配置未完整"],
+    ["最近备份", lastBackup],
+    ["保存状态", lastStateSaveError || "正常"]
+  ];
+  elements.diagnosticsPanel.innerHTML = diagnostics
+    .map(([label, value]) => `
+      <div class="diagnostic-item">
+        <span>${escapeHtml(label)}</span>
+        <strong>${escapeHtml(value)}</strong>
+      </div>
+    `)
+    .join("");
+}
+
+function appVersion() {
+  return "0.1.8";
 }
 
 function renderAiConfig() {
@@ -2603,7 +2843,15 @@ function restoreDefaultTemplate() {
 }
 
 function exportMemory() {
-  const payload = {
+  const payload = buildMemoryPayload();
+  downloadJson(payload, `ai-relationship-memory-${new Date().toISOString().slice(0, 10)}.json`);
+  state.lastBackupAt = new Date().toISOString();
+  saveState();
+  setMemoryStatus("已导出本地记忆文件。");
+}
+
+function buildMemoryPayload() {
+  return {
     app: "AI 人际管家",
     version: 1,
     exportedAt: new Date().toISOString(),
@@ -2612,29 +2860,60 @@ function exportMemory() {
       userProfile: state.userProfile,
       categories: state.categories,
       people: state.people,
-      lessons: state.lessons || []
+      lessons: state.lessons || [],
+      manualSchedules: state.manualSchedules || [],
+      lastBackupAt: state.lastBackupAt || ""
     }
   };
+}
+
+function downloadJson(payload, fileName) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
-  const date = new Date().toISOString().slice(0, 10);
   link.href = url;
-  link.download = `ai-relationship-memory-${date}.json`;
+  link.download = fileName;
   document.body.appendChild(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-  setMemoryStatus("已导出本地记忆文件。");
+}
+
+async function exportEncryptedMemory() {
+  const password = window.prompt("设置一个备份密码。导入时必须输入同一个密码。");
+  if (!password) return;
+  try {
+    const encrypted = await encryptJsonPayload(buildMemoryPayload(), password);
+    downloadJson(encrypted, `ai-relationship-memory-encrypted-${new Date().toISOString().slice(0, 10)}.json`);
+    state.lastBackupAt = new Date().toISOString();
+    saveState();
+    setMemoryStatus("已导出加密记忆文件。请单独保存好密码，软件不会记录这个密码。");
+  } catch (error) {
+    setMemoryStatus(`加密导出失败：${error.message || error}`);
+  }
 }
 
 function importMemory(file) {
   if (!file) return;
 
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload = async () => {
     try {
       const payload = JSON.parse(String(reader.result || ""));
+      const plainPayload = payload.encrypted ? await decryptMemoryPayload(payload) : payload;
+      importMemoryPayload(plainPayload);
+      setMemoryStatus(payload.encrypted ? "已导入加密记忆文件，当前显示导入后的人物库。" : "已导入记忆文件，当前显示导入后的人物库。");
+      render();
+    } catch (error) {
+      setMemoryStatus(`导入失败：${error.message || "请选择 AI 人际管家导出的 JSON 文件。"}`);
+    } finally {
+      elements.importMemoryInput.value = "";
+    }
+  };
+  reader.readAsText(file, "utf-8");
+}
+
+function importMemoryPayload(payload) {
       const imported = payload.state || payload;
       if (!Array.isArray(imported.categories) || !Array.isArray(imported.people)) {
         throw new Error("Invalid memory file");
@@ -2650,8 +2929,12 @@ function importMemory(file) {
         categories: imported.categories,
         people: imported.people,
         lessons: Array.isArray(imported.lessons) ? imported.lessons : state.lessons || [],
+        manualSchedules: Array.isArray(imported.manualSchedules) ? imported.manualSchedules : state.manualSchedules || [],
+        lastBackupAt: imported.lastBackupAt || state.lastBackupAt || "",
         selectedCategoryId: "all",
         selectedPersonId: imported.people[0]?.id || null,
+        pendingChatImport: null,
+        pendingMemoryDraft: null,
         focusCategoryId: null,
         focusPersonId: null,
         graphPersonStage: null,
@@ -2659,15 +2942,68 @@ function importMemory(file) {
         viewMode: "manage"
       };
       saveState();
-      setMemoryStatus("已导入记忆文件，当前显示导入后的人物库。");
-      render();
-    } catch {
-      setMemoryStatus("导入失败：请选择 AI 人际管家导出的 JSON 文件。");
-    } finally {
-      elements.importMemoryInput.value = "";
-    }
+}
+
+async function encryptJsonPayload(payload, password) {
+  ensureCryptoSupport();
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveBackupKey(password, salt);
+  const encoded = new TextEncoder().encode(JSON.stringify(payload));
+  const cipher = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
+  return {
+    app: "AI 人际管家",
+    version: 1,
+    encrypted: true,
+    algorithm: "AES-GCM",
+    kdf: "PBKDF2-SHA-256",
+    iterations: 120000,
+    exportedAt: new Date().toISOString(),
+    salt: bytesToBase64(salt),
+    iv: bytesToBase64(iv),
+    data: bytesToBase64(new Uint8Array(cipher))
   };
-  reader.readAsText(file, "utf-8");
+}
+
+async function decryptMemoryPayload(payload) {
+  ensureCryptoSupport();
+  const password = window.prompt("这是加密备份，请输入导出时设置的密码。");
+  if (!password) throw new Error("已取消导入。");
+  const salt = base64ToBytes(payload.salt || "");
+  const iv = base64ToBytes(payload.iv || "");
+  const data = base64ToBytes(payload.data || "");
+  const key = await deriveBackupKey(password, salt, payload.iterations || 120000);
+  try {
+    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, data);
+    return JSON.parse(new TextDecoder().decode(plain));
+  } catch {
+    throw new Error("密码错误或备份文件已损坏。");
+  }
+}
+
+async function deriveBackupKey(password, salt, iterations = 120000) {
+  const rawKey = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
+    rawKey,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+function ensureCryptoSupport() {
+  if (!window.crypto?.subtle || !window.crypto?.getRandomValues) {
+    throw new Error("当前环境不支持加密备份，请升级软件或使用普通导出。");
+  }
+}
+
+function bytesToBase64(bytes) {
+  return btoa(String.fromCharCode(...bytes));
+}
+
+function base64ToBytes(value) {
+  return Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
 }
 
 function setMemoryStatus(message) {
@@ -2803,6 +3139,7 @@ function renderPerson() {
         <input type="file" id="personChatImportInput" accept=".txt,.csv,.json,.md,.html,.htm,.bak,.bat,text/plain,text/csv,text/html,application/json" hidden />
       </div>
       <p class="meta-line" id="chatImportStatus">支持 TXT、CSV、JSON、Markdown、HTML，也会尝试读取 QQ 的 BAK/BAT；如果文件是备份或脚本，需要先转成可读文本再导入。</p>
+      ${renderChatImportPreview(person)}
     </section>
   `;
 
@@ -2825,8 +3162,34 @@ function renderPerson() {
     await importChatTranscriptFile(person.id, event.target.files?.[0]);
     event.target.value = "";
   });
+  $("#confirmChatImportButton")?.addEventListener("click", confirmPendingChatImport);
+  $("#cancelChatImportButton")?.addEventListener("click", cancelPendingChatImport);
   bindMemoryManager(person);
   if (window.lucide) lucide.createIcons();
+}
+
+function renderChatImportPreview(person) {
+  const pending = state.pendingChatImport;
+  if (!pending || pending.personId !== person.id) return "";
+  const stats = pending.stats || {};
+  return `
+    <div class="chat-import-preview">
+      <div class="preview-head">
+        <strong>导入预览：${escapeHtml(pending.fileName)}</strong>
+        <span>共 ${stats.total || 0} 条 / 我方 ${stats.self || 0} / 对方 ${stats.opponent || 0} / 未知 ${stats.unknown || 0}</span>
+      </div>
+      <div class="preview-lines">
+        ${(pending.preview || []).map((message) => `
+          <p><strong>${escapeHtml(roleLabel(message.role))}</strong>${escapeHtml(message.speaker ? ` ${message.speaker}` : "")}：${escapeHtml(message.text)}</p>
+        `).join("")}
+      </div>
+      <div class="memory-editor-actions">
+        <span>确认后才会蒸馏并写入此人画像。</span>
+        <button class="ghost-button" type="button" id="cancelChatImportButton">取消</button>
+        <button class="primary-button" type="button" id="confirmChatImportButton">确认蒸馏</button>
+      </div>
+    </div>
+  `;
 }
 
 function renderDialogue() {
@@ -3686,8 +4049,28 @@ function bindEvents() {
   $("#defaultTemplateButton").addEventListener("click", restoreDefaultTemplate);
   $("#addCategoryButton").addEventListener("click", addCategory);
   $("#exportMemoryButton").addEventListener("click", exportMemory);
+  $("#exportEncryptedMemoryButton")?.addEventListener("click", exportEncryptedMemory);
   $("#importMemoryButton").addEventListener("click", () => elements.importMemoryInput.click());
   elements.importMemoryInput.addEventListener("change", () => importMemory(elements.importMemoryInput.files?.[0]));
+  elements.manageSearchInput?.addEventListener("input", (event) => {
+    state.manageFilters.keyword = event.target.value;
+    saveState();
+    renderManage();
+  });
+  elements.manageImportanceFilter?.addEventListener("change", (event) => {
+    state.manageFilters.importance = event.target.value;
+    saveState();
+    renderManage();
+  });
+  elements.manageSortSelect?.addEventListener("change", (event) => {
+    state.manageFilters.sort = event.target.value;
+    saveState();
+    renderManage();
+  });
+  elements.scheduleForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    addManualScheduleFromForm();
+  });
   elements.offlineModeToggle.addEventListener("change", () => {
     state.offlineMode = elements.offlineModeToggle.checked;
     saveState();
@@ -3696,6 +4079,7 @@ function bindEvents() {
   $("#deepseekPresetButton")?.addEventListener("click", applyDeepSeekPreset);
   $("#saveAiConfigButton")?.addEventListener("click", saveAiConfigFromForm);
   $("#testAiConfigButton")?.addEventListener("click", testAiConfig);
+  $("#runDiagnosticsButton")?.addEventListener("click", renderDiagnostics);
   elements.aiEnabledToggle?.addEventListener("change", saveAiConfigFromForm);
   elements.dialogueSearchInput?.addEventListener("input", renderDialogueHistory);
   elements.autoReplyToggle?.addEventListener("change", () => {
