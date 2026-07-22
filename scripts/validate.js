@@ -25,7 +25,7 @@ function read(file) {
 }
 
 try {
-  JSON.parse(read(packageFile));
+  var packageJson = JSON.parse(read(packageFile));
   pass("package.json is valid JSON");
 } catch (error) {
   fail(`package.json is invalid: ${error.message}`);
@@ -50,6 +50,12 @@ for (const file of [electronMainFile, electronPreloadFile]) {
 const html = read(htmlFile);
 const app = read(appFile);
 const electronMain = read(electronMainFile);
+let packageLockJson = null;
+try {
+  packageLockJson = JSON.parse(read(path.join(root, "package-lock.json")));
+} catch (error) {
+  fail(`package-lock.json is invalid: ${error.message}`);
+}
 const ids = [...html.matchAll(/id="([^"]+)"/g)].map((match) => match[1]);
 const duplicateIds = [...new Set(ids.filter((id, index) => ids.indexOf(id) !== index))];
 if (duplicateIds.length) fail(`duplicate HTML ids: ${duplicateIds.join(", ")}`);
@@ -95,6 +101,15 @@ if (!electronMain.includes('const APP_TITLE = "\\u0041\\u0049\\u4eba\\u9645\\u7b
   fail("desktop window title is not normalized");
 }
 else pass("desktop title is normalized");
+
+const versionMatch = app.match(/function\s+appVersion\s*\(\)\s*{\s*return\s+"([^"]+)";\s*}/);
+const appUiVersion = versionMatch?.[1] || "";
+const lockRootVersion = packageLockJson?.packages?.[""]?.version || packageLockJson?.version || "";
+if (!packageJson?.version || packageJson.version !== lockRootVersion || packageJson.version !== appUiVersion) {
+  fail(`version mismatch: package=${packageJson?.version || "missing"}, lock=${lockRootVersion || "missing"}, app=${appUiVersion || "missing"}`);
+} else {
+  pass(`version fields are consistent (${packageJson.version})`);
+}
 
 try {
   const appWithoutStartup = app.replace(/\nbindEvents\(\);\s*\nrender\(\);\s*$/m, "");
