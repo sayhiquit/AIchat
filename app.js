@@ -156,6 +156,7 @@ const defaultState = {
   ]
 };
 
+let lastStateLoadError = "";
 let state = normalizeAppState(resetLoadedDialogueSimulation(loadState()));
 let sessionDialogueMessages = new Map();
 let lastGraphNodes = new Map();
@@ -241,7 +242,8 @@ const elements = {
 
 function loadState() {
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    const rawState = localStorage.getItem(STORAGE_KEY);
+    const saved = JSON.parse(rawState);
     if (!saved) return structuredClone(defaultState);
     return sanitizeLoadedDialogueHistory({
       ...structuredClone(defaultState),
@@ -257,8 +259,21 @@ function loadState() {
       categories: saved.categories?.length ? saved.categories : defaultState.categories,
       people: Array.isArray(saved.people) ? saved.people : defaultState.people
     });
-  } catch {
+  } catch (error) {
+    lastStateLoadError = error?.message || "本地缓存读取失败";
+    backupCorruptedState();
     return structuredClone(defaultState);
+  }
+}
+
+function backupCorruptedState() {
+  try {
+    const rawState = localStorage.getItem(STORAGE_KEY);
+    if (!rawState) return;
+    const backupKey = `${STORAGE_KEY}_corrupted_${new Date().toISOString().replace(/[:.]/g, "-")}`;
+    localStorage.setItem(backupKey, rawState);
+  } catch {
+    // If localStorage itself is unavailable, the visible diagnostics will carry the load error.
   }
 }
 
@@ -2542,6 +2557,7 @@ function renderSettings() {
   if (elements.memoryStatus) {
     elements.memoryStatus.textContent = lastStateSaveError
       ? `保存失败：${lastStateSaveError}。请先导出记忆，避免刷新后丢失。`
+      : lastStateLoadError ? `读取本地缓存失败：${lastStateLoadError}。已尝试保留损坏缓存备份，请导入最近备份恢复。`
       : state.offlineMode === false ? "云同步预留模式：当前仍只保存在本地。" : "离线模式开启：当前记忆只保存在本地浏览器。";
   }
   if (elements.storageLocation) {
@@ -2573,6 +2589,7 @@ function renderDiagnostics() {
     ["手动日程", (state.manualSchedules || []).length],
     ["AI 状态", aiReady ? "在线配置可用" : "本地模拟/配置未完整"],
     ["最近备份", lastBackup],
+    ["读取状态", lastStateLoadError || "正常"],
     ["保存状态", lastStateSaveError || "正常"]
   ];
   elements.diagnosticsPanel.innerHTML = diagnostics

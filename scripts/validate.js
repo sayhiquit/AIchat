@@ -111,6 +111,12 @@ if (!packageJson?.version || packageJson.version !== lockRootVersion || packageJ
   pass(`version fields are consistent (${packageJson.version})`);
 }
 
+if (!app.includes("function backupCorruptedState()") || !app.includes("lastStateLoadError")) {
+  fail("local state corruption recovery is missing");
+} else {
+  pass("local state corruption recovery exists");
+}
+
 try {
   const appWithoutStartup = app.replace(/\nbindEvents\(\);\s*\nrender\(\);\s*$/m, "");
   const sandbox = {
