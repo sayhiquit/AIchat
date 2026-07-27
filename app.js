@@ -30,6 +30,16 @@ const defaultState = {
     sort: "recent"
   },
   manualSchedules: [],
+  schedulePlanner: {
+    requirement: "",
+    startDate: "",
+    horizon: "auto",
+    status: "idle",
+    message: "",
+    options: [],
+    selectedOptionId: "",
+    draftPlan: null
+  },
   lastBackupAt: "",
   autoAiReply: true,
   aiConfig: {
@@ -216,6 +226,13 @@ const elements = {
   scheduleDate: $("#scheduleDate"),
   scheduleForm: $("#scheduleForm"),
   monthCalendar: $("#monthCalendar"),
+  plannerRequirement: $("#plannerRequirement"),
+  plannerStartDate: $("#plannerStartDate"),
+  plannerHorizon: $("#plannerHorizon"),
+  plannerStatus: $("#plannerStatus"),
+  plannerOptions: $("#plannerOptions"),
+  plannerPreview: $("#plannerPreview"),
+  plannerAiBadge: $("#plannerAiBadge"),
   categoryEditor: $("#categoryEditor"),
   aiEnabledToggle: $("#aiEnabledToggle"),
   aiProviderSelect: $("#aiProviderSelect"),
@@ -374,17 +391,23 @@ function normalizeAppState(candidate = {}) {
         .filter((item) => item && item.title)
         .map((item, index) => ({
           id: String(item.id || `schedule_${index}_${Date.now()}`),
+          date: normalizeDateString(item.date) || localDateString(),
           time: item.time || "09:30",
           duration: item.duration || "10 分钟",
           type: item.type || "手动",
           title: String(item.title || "未命名日程"),
           detail: String(item.detail || "手动添加的关系维护事项。"),
           personId: personIds.has(item.personId) ? item.personId : "",
+          phase: String(item.phase || ""),
+          collaborators: String(item.collaborators || ""),
+          resources: String(item.resources || ""),
+          planId: String(item.planId || ""),
           status: ["todo", "done", "delayed", "ignored"].includes(item.status) ? item.status : "todo",
           createdAt: item.createdAt || new Date().toISOString(),
           updatedAt: item.updatedAt || ""
         }))
     : [];
+  normalized.schedulePlanner = normalizeSchedulePlanner(candidate.schedulePlanner);
   normalized.lastBackupAt = candidate.lastBackupAt || "";
   if (normalized.pendingChatImport && !personIds.has(normalized.pendingChatImport.personId)) normalized.pendingChatImport = null;
   normalized.offlineMode = normalized.offlineMode !== false;
@@ -406,6 +429,83 @@ function uniqueStateId(rawId, usedIds, fallbackPrefix) {
   }
   usedIds.add(id);
   return id;
+}
+
+function localDateString(date = new Date()) {
+  const value = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(value.getTime())) return "";
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeDateString(value) {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return localDateString(date) === match[0] ? match[0] : "";
+}
+
+function addDaysToDate(dateString, days) {
+  const normalized = normalizeDateString(dateString) || localDateString();
+  const [year, month, day] = normalized.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  date.setDate(date.getDate() + Math.max(0, Number(days) || 0));
+  return localDateString(date);
+}
+
+function normalizeSchedulePlanner(candidate = {}) {
+  const source = candidate && typeof candidate === "object" ? candidate : {};
+  const options = Array.isArray(source.options)
+    ? source.options.slice(0, 3).map((option, index) => ({
+        id: String(option?.id || `option_${index + 1}`),
+        title: String(option?.title || `方案 ${index + 1}`).slice(0, 40),
+        summary: String(option?.summary || ""),
+        suitableFor: String(option?.suitableFor || ""),
+        tradeoffs: String(option?.tradeoffs || ""),
+        durationDays: Math.min(90, Math.max(1, Number(option?.durationDays) || 14))
+      }))
+    : [];
+  const selectedOptionId = options.some((option) => option.id === source.selectedOptionId)
+    ? source.selectedOptionId
+    : "";
+  const rawPlan = source.draftPlan && typeof source.draftPlan === "object" ? source.draftPlan : null;
+  const draftPlan = rawPlan ? {
+    id: String(rawPlan.id || `plan_${Date.now()}`),
+    optionId: String(rawPlan.optionId || ""),
+    title: String(rawPlan.title || "AI 行动计划"),
+    summary: String(rawPlan.summary || ""),
+    stages: Array.isArray(rawPlan.stages) ? rawPlan.stages.slice(0, 12).map((stage) => ({
+      title: String(stage?.title || "阶段"),
+      goal: String(stage?.goal || "")
+    })) : [],
+    tasks: Array.isArray(rawPlan.tasks) ? rawPlan.tasks.slice(0, 120).map((task, index) => ({
+      id: String(task?.id || `task_${index + 1}`),
+      date: normalizeDateString(task?.date) || addDaysToDate(source.startDate, task?.dayOffset || index),
+      time: /^\d{2}:\d{2}$/.test(String(task?.time || "")) ? String(task.time) : "09:30",
+      duration: String(task?.duration || "45 分钟"),
+      phase: String(task?.phase || "执行"),
+      title: String(task?.title || `任务 ${index + 1}`),
+      detail: String(task?.detail || ""),
+      collaborators: String(task?.collaborators || ""),
+      resources: String(task?.resources || "")
+    })) : [],
+    syncedAt: String(rawPlan.syncedAt || "")
+  } : null;
+
+  return {
+    requirement: String(source.requirement || ""),
+    startDate: normalizeDateString(source.startDate) || localDateString(),
+    horizon: ["auto", "7", "14", "30", "60"].includes(String(source.horizon)) ? String(source.horizon) : "auto",
+    status: ["idle", "ready", "preview", "synced", "error"].includes(source.status) ? source.status : "idle",
+    message: String(source.message || ""),
+    understanding: String(source.understanding || ""),
+    assumptions: Array.isArray(source.assumptions) ? source.assumptions.slice(0, 6).map(String) : [],
+    options,
+    selectedOptionId,
+    draftPlan
+  };
 }
 
 function saveState() {
@@ -492,7 +592,7 @@ function titleForRoute() {
   const map = {
     network: { title: state.viewMode === "graph" ? "关系总览" : "关系管理", scope: "AI 人际管家" },
     dialogue: { title: "模拟对话", scope: "回复决策台" },
-    schedule: { title: "日程安排", scope: "关系维护" },
+    schedule: { title: "日程安排", scope: "行动规划与关系维护" },
     settings: { title: "设置", scope: "模板与边界" }
   };
   return map[state.route] || map.network;
@@ -2298,6 +2398,428 @@ function trimEndingPunctuation(value = "") {
   return String(value).replace(/[。！？!?.,，；;]+$/g, "");
 }
 
+function plannerPeopleContext() {
+  return state.people
+    .slice()
+    .sort((a, b) => importanceWeight(b.importance) - importanceWeight(a.importance))
+    .slice(0, 12)
+    .map((person) => ({
+      name: person.name,
+      relation: person.relation || "未设置",
+      importance: person.importance || "中",
+      background: normalizePersonContext(person).background || ""
+    }));
+}
+
+function plannerOptionPrompt(requirement, startDate, horizon) {
+  return [
+    "你是中文项目规划与生活事务助理。先理解需求，再给用户三个真正不同的可选方向，不要直接替用户决定。",
+    "方案应说明适用场景、取舍和合理周期。软件项目要覆盖需求、产品、技术、协作、测试和上线；出行计划要覆盖时间约束、交通备选、购票核验、行李和风险；其他领域按实际任务拆解。",
+    "涉及票价、班次、政策、库存等实时信息时，明确标注需要用户在官方渠道核验，禁止编造实时数据。",
+    "只返回 JSON，不要 Markdown。格式：{\"understanding\":\"...\",\"assumptions\":[\"...\"],\"options\":[{\"id\":\"option_1\",\"title\":\"...\",\"summary\":\"...\",\"suitableFor\":\"...\",\"tradeoffs\":\"...\",\"durationDays\":14}]}。",
+    "options 必须正好三项，id 分别为 option_1、option_2、option_3。"
+  ].join("\n") + `\n\n用户资料：${JSON.stringify(state.userProfile || {})}`
+    + `\n可协作的人际网：${JSON.stringify(plannerPeopleContext())}`
+    + `\n需求：${requirement}`
+    + `\n计划开始日期：${startDate}`
+    + `\n期望周期：${horizon === "auto" ? "请判断" : `${horizon} 天`}`;
+}
+
+function plannerDetailPrompt(requirement, option, startDate, horizon) {
+  return [
+    "你是中文执行计划助理。把用户已经选定的方向拆成可直接排入日程的阶段和逐日行动。",
+    "每条任务必须具体，包含日期、时间、预计时长、阶段、标题、执行细节、需要沟通的人和所需资源。不要用“继续推进”等空话。",
+    "协作对象若能与给定人际网明确匹配可使用姓名，否则写岗位或角色，不要强行绑定。任务日期不得早于开始日期，按依赖顺序排列，最多 60 条。",
+    "涉及实时票务、路线、天气、价格、政策时，只安排查询与核验动作，不得伪造具体班次和价格。",
+    "只返回 JSON，不要 Markdown。格式：{\"id\":\"plan_x\",\"title\":\"...\",\"summary\":\"...\",\"stages\":[{\"title\":\"...\",\"goal\":\"...\"}],\"tasks\":[{\"id\":\"task_1\",\"date\":\"YYYY-MM-DD\",\"time\":\"09:30\",\"duration\":\"60 分钟\",\"phase\":\"...\",\"title\":\"...\",\"detail\":\"...\",\"collaborators\":\"...\",\"resources\":\"...\"}]}。"
+  ].join("\n") + `\n\n用户资料：${JSON.stringify(state.userProfile || {})}`
+    + `\n可协作的人际网：${JSON.stringify(plannerPeopleContext())}`
+    + `\n原始需求：${requirement}`
+    + `\n已选方案：${JSON.stringify(option)}`
+    + `\n开始日期：${startDate}`
+    + `\n期望周期：${horizon === "auto" ? `${option.durationDays || 14} 天左右` : `${horizon} 天`}`;
+}
+
+async function requestPlannerJson(prompt, temperature = 0.35) {
+  const config = normalizeAiConfig();
+  const response = await fetch(aiEndpoint(), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.apiKey}`
+    },
+    body: JSON.stringify({
+      model: config.model,
+      messages: [
+        { role: "system", content: "严格按用户要求输出一个可解析的 JSON 对象。" },
+        { role: "user", content: prompt }
+      ],
+      temperature
+    })
+  });
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(`HTTP ${response.status}${errorText ? `：${errorText.slice(0, 120)}` : ""}`);
+  }
+  const data = await response.json();
+  return extractJsonObject(data?.choices?.[0]?.message?.content || "");
+}
+
+function plannerScenario(requirement) {
+  const text = String(requirement || "");
+  if (/电商|商城|购物|网店|小程序商城|交易平台/.test(text)) return "ecommerce";
+  if (/返乡|回家|出行|旅行|旅游|高铁|机票|火车|厦门|金华/.test(text)) return "travel";
+  if (/学习|英语|考试|健身|训练|提升|读书|证书/.test(text)) return "growth";
+  return "project";
+}
+
+function localPlannerOptions(requirement, startDate, horizon) {
+  const scenario = plannerScenario(requirement);
+  const duration = horizon === "auto" ? (scenario === "ecommerce" ? 30 : scenario === "travel" ? 7 : 21) : Number(horizon);
+  const library = {
+    ecommerce: [
+      ["快速验证 MVP", "先做商品、购物车、订单和基础后台，尽快拿真实用户验证。", "时间紧、需求还不稳定，需要先向领导展示闭环", "上线快，但营销、会员和复杂履约能力先后置"],
+      ["垂直品类精品商城", "围绕一个明确品类强化内容、选品和复购体验。", "已有品类资源，希望做出差异化", "需要更深入的用户研究和运营配合"],
+      ["可扩展电商平台", "从多商户、权限、结算和数据体系出发建设长期底座。", "业务边界明确且后续会持续扩张", "前期成本最高，需要更多技术和业务资源"]
+    ],
+    travel: [
+      ["稳妥高铁方案", "优先比较直达与少换乘路线，并准备前后时段备选。", "重视准点、携带行李或同行人员较多", "总耗时可能更长，热门日期需要尽早抢票"],
+      ["效率优先组合", "比较飞机、高铁及机场接驳的门到门时间。", "时间价值高、行李少、能接受价格波动", "受天气和接驳影响更明显，需要保留缓冲"],
+      ["弹性分段返乡", "设置中转城市或错峰日期，扩大可选票源。", "热门时段直达票紧张，日期可调整", "换乘和行李管理更复杂"]
+    ],
+    growth: [
+      ["稳定习惯型", "每天安排小块时间，以可持续输入和复盘为主。", "工作忙、容易中断，希望长期坚持", "短期提升不明显，但完成率更高"],
+      ["目标项目型", "围绕一个可展示成果倒推训练和反馈。", "需要明确成果或用于工作场景", "需要持续输出并接受反馈"],
+      ["集中冲刺型", "在固定周期内提高训练密度并设置阶段测评。", "近期有考试、面试或明确截止日期", "强度高，需要提前保护时间"]
+    ],
+    project: [
+      ["低风险验证", "先澄清目标和约束，用小范围试点验证关键假设。", "需求抽象、资源不明或失败成本较高", "前期需要多做确认，正式交付稍晚"],
+      ["平衡推进", "目标、方案、执行和复盘并行，按阶段交付可见成果。", "大多数工作与生活项目", "需要稳定投入和定期复盘"],
+      ["结果冲刺", "围绕最关键成果压缩范围，集中资源快速交付。", "截止日期明确且优先级很高", "缓冲较少，容易牺牲次要质量"]
+    ]
+  };
+  return {
+    understanding: `你希望把“${String(requirement).slice(0, 80)}”从一个抽象需求变成可选择、可执行、可排期的行动计划。`,
+    assumptions: ["当前缺少的实时信息会安排为核验任务，不会直接猜测", "正式写入日程前仍由你确认最终方向"],
+    options: library[scenario].map((item, index) => ({
+      id: `${scenario}_${index + 1}`,
+      title: item[0], summary: item[1], suitableFor: item[2], tradeoffs: item[3],
+      durationDays: Math.min(60, Math.max(3, duration + (index - 1) * Math.ceil(duration * 0.3)))
+    }))
+  };
+}
+
+function normalizePlannerOptions(payload, fallback) {
+  const raw = Array.isArray(payload?.options) && payload.options.length >= 3 ? payload.options : fallback.options;
+  const usedIds = new Set();
+  const options = raw.slice(0, 3).map((option, index) => {
+    const proposedId = String(option?.id || `option_${index + 1}`).replace(/[^\w-]/g, "_") || `option_${index + 1}`;
+    const id = usedIds.has(proposedId) ? `option_${index + 1}` : proposedId;
+    usedIds.add(id);
+    return {
+      id,
+      title: String(option?.title || `方案 ${index + 1}`).slice(0, 40),
+      summary: String(option?.summary || fallback.options[index]?.summary || ""),
+      suitableFor: String(option?.suitableFor || fallback.options[index]?.suitableFor || ""),
+      tradeoffs: String(option?.tradeoffs || fallback.options[index]?.tradeoffs || ""),
+      durationDays: Math.min(90, Math.max(1, Number(option?.durationDays) || fallback.options[index]?.durationDays || 14))
+    };
+  });
+  return {
+    understanding: String(payload?.understanding || fallback.understanding || ""),
+    assumptions: Array.isArray(payload?.assumptions) ? payload.assumptions.slice(0, 6).map(String) : fallback.assumptions,
+    options
+  };
+}
+
+async function buildPlannerOptions(requirement, startDate, horizon) {
+  const fallback = localPlannerOptions(requirement, startDate, horizon);
+  if (!canUseOnlineAi()) return { ...fallback, source: "local" };
+  try {
+    const payload = await requestPlannerJson(plannerOptionPrompt(requirement, startDate, horizon), 0.45);
+    return { ...normalizePlannerOptions(payload, fallback), source: "ai" };
+  } catch (error) {
+    return { ...fallback, source: "fallback", warning: `在线 AI 暂时不可用，已生成离线方案：${error.message || error}` };
+  }
+}
+
+function localPlanTask(startDate, dayOffset, data) {
+  return {
+    id: `task_${dayOffset + 1}`,
+    date: addDaysToDate(startDate, dayOffset),
+    time: data.time || "09:30",
+    duration: data.duration || "45 分钟",
+    phase: data.phase,
+    title: data.title,
+    detail: data.detail,
+    collaborators: data.collaborators || "",
+    resources: data.resources || ""
+  };
+}
+
+function localTaskForDay(scenario, day, total, option) {
+  const ratio = total <= 1 ? 1 : day / (total - 1);
+  if (scenario === "ecommerce") {
+    if (ratio < 0.18) return { phase: "需求定义", title: ["确认业务目标与成功指标", "访谈需求方与运营", "梳理目标用户和核心场景", "确定首版范围与不做清单"][day % 4], detail: "输出一页结论，记录待确认问题、验收口径和下一步负责人。", collaborators: day < 2 ? "领导、产品负责人、运营" : "产品、运营", resources: "需求访谈记录、竞品清单、业务数据" };
+    if (ratio < 0.38) return { phase: "方案设计", title: ["绘制核心购物流程", "定义商品与订单数据结构", "评审技术架构和接口边界", "制作关键页面原型", "拆分版本和迭代优先级"][day % 5], detail: `围绕“${option.title}”完成可评审产物，并记录风险、依赖和决策。`, collaborators: "产品、设计、技术负责人", resources: "流程图、原型工具、接口文档、排期表" };
+    if (ratio < 0.78) return { phase: "开发验证", title: ["实现商品浏览与搜索", "实现购物车和价格计算", "实现订单创建与状态流转", "建设基础运营后台", "联调登录、支付或模拟支付", "补充异常流程与权限", "执行接口和页面自测"][day % 7], detail: "当天结束前形成可运行增量，登记缺陷并同步阻塞项。", collaborators: "前端、后端、测试、设计", resources: "代码仓库、测试环境、接口平台、缺陷清单" };
+    if (ratio < 0.94) return { phase: "验收上线", title: ["执行端到端测试", "组织业务验收与问题分级", "准备上线清单和回滚方案", "小范围发布并观察数据"][day % 4], detail: "按验收标准核对交易闭环，严重问题必须在上线前关闭。", collaborators: "测试、运维、业务负责人", resources: "验收用例、监控面板、上线与回滚清单" };
+    return { phase: "复盘迭代", title: "复盘首版结果并确定下一迭代", detail: "对照成功指标总结真实反馈、遗留风险和下一阶段优先级。", collaborators: "领导、产品、运营、技术", resources: "用户反馈、业务指标、复盘文档" };
+  }
+  if (scenario === "travel") {
+    const tasks = [
+      ["约束确认", "确认出发日期、最晚到达时间、同行人、行李和预算", "家人或同行人", "日历、预算记录"],
+      ["路线比较", "在铁路与航空官方渠道比较门到门耗时，只记录可核验信息", "同行人", "铁路12306、航空公司官网、地图"],
+      ["备选设计", "建立首选、错峰和中转三套路线，写清换乘缓冲", "家人或同行人", "路线对比表、地图"],
+      ["购票准备", "检查实名信息、候补规则和开售时间，设置提醒", "同行人", "官方购票平台、证件"],
+      ["票务核验", "按首选顺序查询并购票；无票时立即切换已确认备选", "家人或同行人", "官方购票平台、支付方式"],
+      ["行前准备", "核对天气、交通接驳、行李、充电设备和家中钥匙", "家人", "天气应用、行李清单"],
+      ["出发执行", "提前到站并给家人同步节点，保留换乘与延误缓冲", "家人或同行人", "电子票、证件、路线截图"]
+    ];
+    const item = tasks[Math.min(tasks.length - 1, Math.floor(ratio * tasks.length))];
+    return { phase: item[0], title: item[1].split("，")[0], detail: item[1], collaborators: item[2], resources: item[3], time: ratio > 0.8 ? "08:00" : "19:30", duration: ratio > 0.8 ? "按行程" : "30 分钟" };
+  }
+  if (scenario === "growth") {
+    if (ratio < 0.15) return { phase: "基线诊断", title: day === 0 ? "明确目标与可衡量成果" : "完成一次基线测试", detail: "记录当前水平、可用时间、主要短板和阶段验收方式。", collaborators: "导师或反馈伙伴", resources: "测试题、目标清单、计时器" };
+    if (ratio < 0.75) return { phase: "训练循环", title: ["完成核心知识输入", "进行针对性练习", "输出一个小作品", "获取反馈并修正", "复习薄弱点"][day % 5], detail: `围绕“${option.title}”完成当天训练，留下结果而不只记录时长。`, collaborators: day % 5 === 3 ? "导师或反馈伙伴" : "", resources: "学习材料、练习工具、错题或反馈记录" };
+    if (ratio < 0.92) return { phase: "实战应用", title: "在真实或模拟场景完成一次应用", detail: "按目标场景执行，记录卡点、反馈和可复用方法。", collaborators: "反馈伙伴", resources: "模拟题、录音或作品文档" };
+    return { phase: "阶段复盘", title: "完成阶段测评并制定下一周期", detail: "对照基线总结提升、未解决问题和下一阶段重点。", collaborators: "导师或反馈伙伴", resources: "测评结果、复盘模板" };
+  }
+  if (ratio < 0.2) return { phase: "澄清", title: ["明确最终成果和验收标准", "盘点约束、风险与可用资源", "确认关键相关方和决策机制"][day % 3], detail: "把抽象需求改写成可验证结果，列出仍需确认的问题。", collaborators: "需求方、关键相关方", resources: "需求说明、问题清单" };
+  if (ratio < 0.7) return { phase: "执行", title: ["完成第一份可见产出", "获取关键反馈", "修正方案并处理阻塞", "推进下一项核心交付"][day % 4], detail: `按“${option.title}”方向交付可检查成果，并同步风险和下一步。`, collaborators: "相关协作者", resources: "项目资料、任务清单、反馈记录" };
+  if (ratio < 0.9) return { phase: "验收", title: "对照标准验收并关闭关键问题", detail: "逐项检查成果，未达标问题明确负责人和截止日期。", collaborators: "需求方、验收人", resources: "验收清单、问题列表" };
+  return { phase: "复盘", title: "复盘结果并沉淀下一阶段计划", detail: "总结结果、方法、风险和后续优先级。", collaborators: "关键相关方", resources: "结果数据、复盘文档" };
+}
+
+function localDetailedPlan(requirement, option, startDate, horizon) {
+  const scenario = plannerScenario(requirement);
+  const days = Math.min(60, Math.max(3, horizon === "auto" ? option.durationDays || 14 : Number(horizon) || 14));
+  const stageNames = scenario === "ecommerce" ? ["需求定义", "方案设计", "开发验证", "验收上线", "复盘迭代"]
+    : scenario === "travel" ? ["约束确认", "路线与票务", "行前准备", "出发执行"]
+    : scenario === "growth" ? ["基线诊断", "训练循环", "实战应用", "阶段复盘"]
+    : ["澄清", "执行", "验收", "复盘"];
+  return {
+    id: `plan_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
+    optionId: option.id,
+    title: option.title,
+    summary: `${option.summary} 计划从 ${startDate} 开始，按 ${days} 天拆解。`,
+    stages: stageNames.map((title) => ({ title, goal: `完成${title}阶段的可检查结果并处理依赖。` })),
+    tasks: Array.from({ length: days }, (_, day) => localPlanTask(startDate, day, localTaskForDay(scenario, day, days, option)))
+  };
+}
+
+function normalizeDetailedPlan(payload, fallback, startDate) {
+  const rawTasks = Array.isArray(payload?.tasks) && payload.tasks.length ? payload.tasks : fallback.tasks;
+  const normalizedTasks = rawTasks.slice(0, 60).map((task, index) => {
+    const proposedDate = normalizeDateString(task?.date);
+    return {
+      id: `task_${index + 1}`,
+      date: proposedDate && proposedDate >= startDate ? proposedDate : addDaysToDate(startDate, task?.dayOffset || index),
+      time: /^\d{2}:\d{2}$/.test(String(task?.time || "")) ? String(task.time) : "09:30",
+      duration: String(task?.duration || "45 分钟"),
+      phase: String(task?.phase || "执行"),
+      title: String(task?.title || `任务 ${index + 1}`),
+      detail: String(task?.detail || ""),
+      collaborators: String(task?.collaborators || ""),
+      resources: String(task?.resources || "")
+    };
+  });
+  const coveredDates = new Set(normalizedTasks.map((task) => task.date));
+  fallback.tasks.forEach((task) => {
+    if (normalizedTasks.length >= 60 || coveredDates.has(task.date)) return;
+    normalizedTasks.push({ ...task, id: `task_${normalizedTasks.length + 1}` });
+    coveredDates.add(task.date);
+  });
+  normalizedTasks.sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`));
+  normalizedTasks.forEach((task, index) => { task.id = `task_${index + 1}`; });
+  return {
+    id: fallback.id,
+    optionId: fallback.optionId,
+    title: String(payload?.title || fallback.title),
+    summary: String(payload?.summary || fallback.summary),
+    stages: (Array.isArray(payload?.stages) && payload.stages.length ? payload.stages : fallback.stages).slice(0, 12).map((stage) => ({
+      title: String(stage?.title || "阶段"), goal: String(stage?.goal || "")
+    })),
+    tasks: normalizedTasks,
+    syncedAt: ""
+  };
+}
+
+async function buildDetailedPlannerPlan(requirement, option, startDate, horizon) {
+  const fallback = localDetailedPlan(requirement, option, startDate, horizon);
+  if (!canUseOnlineAi()) return { plan: fallback, source: "local" };
+  try {
+    const payload = await requestPlannerJson(plannerDetailPrompt(requirement, option, startDate, horizon), 0.3);
+    return { plan: normalizeDetailedPlan(payload, fallback, startDate), source: "ai" };
+  } catch (error) {
+    return { plan: fallback, source: "fallback", warning: `详细排期生成失败，已使用离线计划：${error.message || error}` };
+  }
+}
+
+async function generatePlannerOptions() {
+  const planner = state.schedulePlanner;
+  const requirement = elements.plannerRequirement?.value.trim() || "";
+  if (!requirement) {
+    planner.status = "error";
+    planner.message = "先描述你想解决的事情，AI 才能判断方向。";
+    renderSchedulePlanner();
+    return;
+  }
+  planner.requirement = requirement;
+  planner.startDate = normalizeDateString(elements.plannerStartDate?.value) || localDateString();
+  planner.horizon = elements.plannerHorizon?.value || "auto";
+  planner.status = "generating";
+  planner.message = canUseOnlineAi() ? "AI 正在理解需求并比较不同路线..." : "正在生成离线模拟方案...";
+  planner.options = [];
+  planner.selectedOptionId = "";
+  planner.draftPlan = null;
+  renderSchedulePlanner();
+  const result = await buildPlannerOptions(requirement, planner.startDate, planner.horizon);
+  planner.options = result.options;
+  planner.understanding = result.understanding;
+  planner.assumptions = result.assumptions;
+  planner.selectedOptionId = "";
+  planner.status = "ready";
+  planner.message = result.warning || (result.source === "ai" ? "已生成 3 个方向，选择一个后再展开详细排期。" : "当前为离线模拟结果；配置 AI 后会按你的完整背景生成。") ;
+  saveState();
+  renderSchedulePlanner();
+}
+
+async function confirmPlannerOption() {
+  const planner = state.schedulePlanner;
+  const option = planner.options.find((item) => item.id === planner.selectedOptionId);
+  if (!option) {
+    planner.status = "error";
+    planner.message = "请先选择一个方案方向。";
+    renderSchedulePlanner();
+    return;
+  }
+  planner.status = "expanding";
+  planner.message = canUseOnlineAi() ? "AI 正在拆解阶段、每日任务、协作对象和资源..." : "正在展开离线详细排期...";
+  renderSchedulePlanner();
+  const result = await buildDetailedPlannerPlan(planner.requirement, option, planner.startDate, planner.horizon);
+  planner.draftPlan = result.plan;
+  planner.status = "preview";
+  planner.message = result.warning || `排期已生成，共 ${result.plan.tasks.length} 项；确认后才会写入正式日程。`;
+  saveState();
+  renderSchedulePlanner();
+}
+
+function syncPlannerToSchedule() {
+  const planner = state.schedulePlanner;
+  const plan = planner.draftPlan;
+  if (!plan?.tasks?.length || plan.syncedAt) return;
+  const existingKeys = new Set((state.manualSchedules || []).map((item) => `${item.planId}:${item.id}`));
+  const createdAt = new Date().toISOString();
+  plan.tasks.forEach((task, index) => {
+    const scheduleId = `schedule_${plan.id}_${task.id || index + 1}`;
+    if (existingKeys.has(`${plan.id}:${scheduleId}`)) return;
+    state.manualSchedules.push({
+      id: scheduleId,
+      date: task.date,
+      time: task.time,
+      duration: task.duration,
+      type: "AI 计划",
+      title: task.title,
+      detail: task.detail,
+      phase: task.phase,
+      collaborators: task.collaborators,
+      resources: task.resources,
+      personId: "",
+      planId: plan.id,
+      status: "todo",
+      createdAt
+    });
+  });
+  plan.syncedAt = createdAt;
+  planner.status = "synced";
+  planner.message = `已把 ${plan.tasks.length} 项任务同步到正式日程，可逐项完成、延期或删除。`;
+  saveState();
+  renderSchedule();
+}
+
+function renderSchedulePlanner() {
+  const planner = state.schedulePlanner;
+  if (!planner || !elements.plannerRequirement) return;
+  elements.plannerRequirement.value = planner.requirement || "";
+  elements.plannerStartDate.value = planner.startDate || localDateString();
+  elements.plannerHorizon.value = planner.horizon || "auto";
+  if (elements.plannerAiBadge) {
+    elements.plannerAiBadge.textContent = canUseOnlineAi() ? `AI · ${normalizeAiConfig().model}` : "本地模拟";
+    elements.plannerAiBadge.classList.toggle("online", canUseOnlineAi());
+  }
+  const busy = ["generating", "expanding"].includes(planner.status);
+  const generateButton = $("#generatePlanButton");
+  if (generateButton) {
+    generateButton.disabled = busy;
+    generateButton.querySelector("span").textContent = planner.status === "generating" ? "生成中" : planner.status === "expanding" ? "排期中" : "生成方案";
+  }
+  elements.plannerStatus.className = `planner-status ${planner.status || "idle"}`;
+  elements.plannerStatus.innerHTML = planner.message || planner.understanding
+    ? `${planner.understanding ? `<strong>${escapeHtml(planner.understanding)}</strong>` : ""}<span>${escapeHtml(planner.message || "")}</span>${planner.assumptions?.length ? `<small>暂定前提：${planner.assumptions.map(escapeHtml).join("；")}</small>` : ""}`
+    : `<span>先输入需求。方案确认前不会改动正式日程。</span>`;
+
+  elements.plannerOptions.innerHTML = planner.options?.length ? `
+    <div class="planner-option-list">
+      ${planner.options.map((option) => `
+        <button type="button" class="planner-option ${planner.selectedOptionId === option.id ? "selected" : ""}" data-planner-option="${escapeAttr(option.id)}">
+          <span class="planner-option-check"><i data-lucide="${planner.selectedOptionId === option.id ? "check" : "circle"}"></i></span>
+          <span class="planner-option-copy">
+            <strong>${escapeHtml(option.title)}</strong>
+            <span>${escapeHtml(option.summary)}</span>
+            <small>适合：${escapeHtml(option.suitableFor)} · 取舍：${escapeHtml(option.tradeoffs)} · 约 ${option.durationDays} 天</small>
+          </span>
+        </button>
+      `).join("")}
+    </div>
+    <button type="button" class="primary-button planner-confirm-button" id="confirmPlanOptionButton" ${!planner.selectedOptionId || busy ? "disabled" : ""}>
+      <i data-lucide="list-checks"></i><span>确认方向并生成排期</span>
+    </button>
+  ` : "";
+
+  const plan = planner.draftPlan;
+  elements.plannerPreview.innerHTML = plan ? `
+    <div class="planner-preview-head">
+      <div><p class="eyebrow">排期预览</p><h3>${escapeHtml(plan.title)}</h3></div>
+      <span>${plan.tasks.length} 项</span>
+    </div>
+    <p class="planner-summary">${escapeHtml(plan.summary)}</p>
+    <div class="planner-stage-list">${plan.stages.map((stage) => `<span title="${escapeAttr(stage.goal)}">${escapeHtml(stage.title)}</span>`).join("")}</div>
+    <div class="planner-task-list">
+      ${plan.tasks.map((task) => `
+        <article class="planner-task">
+          <time>${escapeHtml(formatScheduleDate(task.date))} ${escapeHtml(task.time)}</time>
+          <div><strong>${escapeHtml(task.title)}</strong><span>${escapeHtml(task.phase)} · ${escapeHtml(task.duration)}</span><p>${escapeHtml(task.detail)}</p>${task.collaborators ? `<small><b>沟通：</b>${escapeHtml(task.collaborators)}</small>` : ""}${task.resources ? `<small><b>资源：</b>${escapeHtml(task.resources)}</small>` : ""}</div>
+        </article>
+      `).join("")}
+    </div>
+    <button type="button" class="primary-button full planner-sync-button" id="syncPlanButton" ${plan.syncedAt ? "disabled" : ""}>
+      <i data-lucide="${plan.syncedAt ? "check" : "calendar-plus"}"></i>
+      <span>${plan.syncedAt ? "已同步到日程" : `同步 ${plan.tasks.length} 项到日程`}</span>
+    </button>
+  ` : "";
+
+  elements.plannerOptions.querySelectorAll("[data-planner-option]").forEach((button) => {
+    button.addEventListener("click", () => {
+      planner.selectedOptionId = button.dataset.plannerOption;
+      planner.draftPlan = null;
+      planner.status = "ready";
+      saveState();
+      renderSchedulePlanner();
+    });
+  });
+  $("#confirmPlanOptionButton")?.addEventListener("click", confirmPlannerOption);
+  $("#syncPlanButton")?.addEventListener("click", syncPlannerToSchedule);
+  if (window.lucide) lucide.createIcons();
+}
+
+function formatScheduleDate(dateString) {
+  const normalized = normalizeDateString(dateString);
+  if (!normalized) return "未定日期";
+  const [year, month, day] = normalized.split("-").map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric", weekday: "short" });
+}
+
 function renderSchedule() {
   const today = new Date();
   if (elements.scheduleDate) {
@@ -2309,6 +2831,7 @@ function renderSchedule() {
   }
   renderMonthCalendar(today);
   renderScheduleForm();
+  renderSchedulePlanner();
 
   const scheduleItems = buildScheduleItems();
   elements.todoList.innerHTML = scheduleItems.length
@@ -2354,6 +2877,7 @@ function renderSchedule() {
 function renderScheduleForm() {
   const form = elements.scheduleForm;
   if (!form) return;
+  if (!form.elements.date.value) form.elements.date.value = localDateString();
   form.elements.personId.innerHTML = [
     `<option value="">不绑定人物</option>`,
     ...state.people.map((person) => `<option value="${escapeAttr(person.id)}">${escapeHtml(person.name)}</option>`)
@@ -2375,7 +2899,9 @@ function renderMonthCalendar(today = new Date()) {
     const inMonth = offset >= 1 && offset <= daysInMonth;
     const day = inMonth ? offset : offset < 1 ? daysInPrevMonth + offset : offset - daysInMonth;
     const date = inMonth ? new Date(year, month, day) : offset < 1 ? new Date(year, month - 1, day) : new Date(year, month + 1, day);
-    return { date, day, inMonth, today: isSameDate(date, today) };
+    const dateString = localDateString(date);
+    const taskCount = (state.manualSchedules || []).filter((item) => item.date === dateString && !["done", "ignored"].includes(item.status)).length;
+    return { date, dateString, day, inMonth, today: isSameDate(date, today), taskCount };
   });
 
   elements.monthCalendar.innerHTML = `
@@ -2390,9 +2916,10 @@ function renderMonthCalendar(today = new Date()) {
       ${cells
         .map(
           (cell) => `
-            <span class="month-day ${cell.inMonth ? "" : "muted"} ${cell.today ? "today" : ""}">
+            <span class="month-day ${cell.inMonth ? "" : "muted"} ${cell.today ? "today" : ""} ${cell.taskCount ? "has-schedule" : ""}" title="${cell.taskCount ? `${cell.taskCount} 项日程` : ""}">
               <strong>${cell.day}</strong>
               <small>${escapeHtml(lunarDayLabel(cell.date))}</small>
+              ${cell.taskCount ? `<b>${cell.taskCount}</b>` : ""}
             </span>
           `
         )
@@ -2461,7 +2988,7 @@ function buildScheduleItems() {
       title: "记录今天的人际反馈",
       detail: peopleToReview ? `回看 ${peopleToReview} 的互动，有新信息就补进画像或记忆。` : "记录今天遇到的模糊表达、有效回复和踩雷点。"
     }
-  ].filter(Boolean).map((item, index) => ({ ...item, id: `auto_${index}`, source: "auto", status: "todo" }));
+  ].filter(Boolean).map((item, index) => ({ ...item, id: `auto_${index}`, date: localDateString(), source: "auto", status: "todo" }));
 
   const manualItems = (state.manualSchedules || []).map((item) => ({
     ...item,
@@ -2470,7 +2997,7 @@ function buildScheduleItems() {
     type: item.status === "done" ? "已完成" : item.status === "delayed" ? "延期" : item.status === "ignored" ? "忽略" : item.type || "手动"
   }));
 
-  return [...manualItems, ...autoItems].sort((a, b) => String(a.time || "").localeCompare(String(b.time || "")));
+  return [...manualItems, ...autoItems].sort((a, b) => `${a.date || ""} ${a.time || ""}`.localeCompare(`${b.date || ""} ${b.time || ""}`));
 }
 
 function renderScheduleItem(item) {
@@ -2479,6 +3006,7 @@ function renderScheduleItem(item) {
     <article class="time-row${statusClass}">
       <div class="time-slot">
         <strong>${escapeHtml(item.time)}</strong>
+        <small>${escapeHtml(formatScheduleDate(item.date))}</small>
         <span>${escapeHtml(item.duration)}</span>
       </div>
       <div class="schedule-event">
@@ -2488,6 +3016,13 @@ function renderScheduleItem(item) {
         </div>
         <h3>${escapeHtml(item.title)}</h3>
         <p>${escapeHtml(item.detail)}</p>
+        ${item.phase || item.collaborators || item.resources ? `
+          <div class="schedule-meta">
+            ${item.phase ? `<span><b>阶段</b>${escapeHtml(item.phase)}</span>` : ""}
+            ${item.collaborators ? `<span><b>沟通</b>${escapeHtml(item.collaborators)}</span>` : ""}
+            ${item.resources ? `<span><b>资源</b>${escapeHtml(item.resources)}</span>` : ""}
+          </div>
+        ` : ""}
         ${item.source === "manual" ? `
           <div class="schedule-actions">
             <button class="mini-link" data-schedule-id="${escapeAttr(item.id)}" data-schedule-action="done">完成</button>
@@ -2509,6 +3044,7 @@ function addManualScheduleFromForm() {
   const person = personById(form.elements.personId.value);
   state.manualSchedules.unshift({
     id: `schedule_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    date: normalizeDateString(form.elements.date.value) || localDateString(),
     time: form.elements.time.value || "09:30",
     duration: "10 分钟",
     type: "手动",
@@ -2529,6 +3065,10 @@ function updateManualSchedule(scheduleId, action) {
   if (!item) return;
   if (action === "delete") {
     state.manualSchedules = state.manualSchedules.filter((schedule) => schedule.id !== scheduleId);
+  } else if (action === "delayed") {
+    item.status = "delayed";
+    item.date = addDaysToDate(item.date, 1);
+    item.updatedAt = new Date().toISOString();
   } else {
     item.status = action;
     item.updatedAt = new Date().toISOString();
@@ -2603,7 +3143,7 @@ function renderDiagnostics() {
 }
 
 function appVersion() {
-  return "0.1.8";
+  return "0.1.9";
 }
 
 function renderAiConfig() {
@@ -2879,6 +3419,7 @@ function buildMemoryPayload() {
       people: state.people,
       lessons: state.lessons || [],
       manualSchedules: state.manualSchedules || [],
+      schedulePlanner: state.schedulePlanner || structuredClone(defaultState.schedulePlanner),
       lastBackupAt: state.lastBackupAt || ""
     }
   };
@@ -2947,6 +3488,7 @@ function importMemoryPayload(payload) {
         people: imported.people,
         lessons: Array.isArray(imported.lessons) ? imported.lessons : state.lessons || [],
         manualSchedules: Array.isArray(imported.manualSchedules) ? imported.manualSchedules : state.manualSchedules || [],
+        schedulePlanner: imported.schedulePlanner || state.schedulePlanner || structuredClone(defaultState.schedulePlanner),
         lastBackupAt: imported.lastBackupAt || state.lastBackupAt || "",
         selectedCategoryId: "all",
         selectedPersonId: imported.people[0]?.id || null,
@@ -4088,6 +4630,7 @@ function bindEvents() {
     event.preventDefault();
     addManualScheduleFromForm();
   });
+  $("#generatePlanButton")?.addEventListener("click", generatePlannerOptions);
   elements.offlineModeToggle.addEventListener("change", () => {
     state.offlineMode = elements.offlineModeToggle.checked;
     saveState();

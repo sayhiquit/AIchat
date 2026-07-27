@@ -85,6 +85,12 @@ const requiredIds = [
   "manageImportanceFilter",
   "manageSortSelect",
   "scheduleForm",
+  "plannerRequirement",
+  "plannerStartDate",
+  "plannerHorizon",
+  "generatePlanButton",
+  "plannerOptions",
+  "plannerPreview",
   "exportEncryptedMemoryButton",
   "diagnosticsPanel",
   "runDiagnosticsButton"
@@ -154,6 +160,43 @@ try {
     fail("state normalization failed duplicate-id recovery");
   } else {
     pass("state normalization recovers duplicate ids");
+  }
+
+  const plannerCases = [
+    ["领导安排我做一款电商软件，需要给出方向并排期", "ecommerce"],
+    ["过年从厦门回到金华，请制定返乡计划", "travel"],
+    ["用三个月提升商务英语并形成可展示成果", "growth"]
+  ];
+  const plannerFailures = [];
+  for (const [requirement, expectedScenario] of plannerCases) {
+    const scenario = sandbox.plannerScenario(requirement);
+    const optionResult = sandbox.localPlannerOptions(requirement, "2026-08-01", "7");
+    const plan = sandbox.localDetailedPlan(requirement, optionResult.options[0], "2026-08-01", "7");
+    const tasksValid = plan.tasks.length === 7 && plan.tasks.every((task) =>
+      /^2026-08-0[1-7]$/.test(task.date)
+      && task.phase && task.title && task.detail && task.resources
+    );
+    if (scenario !== expectedScenario || optionResult.options.length !== 3 || !tasksValid) {
+      plannerFailures.push(expectedScenario);
+    }
+  }
+  if (plannerFailures.length) fail(`schedule planner simulations failed: ${plannerFailures.join(", ")}`);
+  else pass("schedule planner covers ecommerce, travel, and growth simulations");
+
+  const plannerFallback = sandbox.localDetailedPlan(
+    plannerCases[0][0],
+    sandbox.localPlannerOptions(plannerCases[0][0], "2026-08-01", "7").options[0],
+    "2026-08-01",
+    "7"
+  );
+  const sparseAiPlan = sandbox.normalizeDetailedPlan({
+    id: "plan_x",
+    tasks: [{ id: "duplicate", date: "2026-08-01", title: "AI task", phase: "AI", detail: "AI detail", resources: "AI resource" }]
+  }, plannerFallback, "2026-08-01");
+  if (sparseAiPlan.id !== plannerFallback.id || sparseAiPlan.tasks.length !== 7 || new Set(sparseAiPlan.tasks.map((task) => task.id)).size !== 7) {
+    fail("schedule planner did not repair sparse or duplicate AI output");
+  } else {
+    pass("schedule planner repairs sparse AI output into a complete daily plan");
   }
 } catch (error) {
   fail(`state normalization smoke test failed: ${error.message}`);

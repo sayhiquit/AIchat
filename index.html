@@ -223,6 +223,7 @@
               <span class="schedule-date" id="scheduleDate"></span>
               <div id="monthCalendar" class="month-calendar"></div>
               <form class="schedule-form" id="scheduleForm">
+                <input name="date" type="date" aria-label="日期" />
                 <input name="time" type="time" value="09:30" aria-label="时间" />
                 <input name="title" placeholder="新增日程，例如：给张总同步项目风险" required />
                 <select name="personId" aria-label="绑定人物"></select>
@@ -234,16 +235,51 @@
               <div id="todoList" class="schedule-timeline"></div>
             </section>
             <aside class="schedule-side">
-            <section class="schedule-card">
-              <p class="eyebrow">本周</p>
-              <h2>维护分布</h2>
-              <div id="weeklyPlan" class="week-grid"></div>
-            </section>
-            <section class="schedule-card">
-              <p class="eyebrow">复盘</p>
-              <h2>近期学习点</h2>
-              <div id="lessonList" class="todo-list"></div>
-            </section>
+              <section class="schedule-card ai-planner-card">
+                <div class="planner-heading">
+                  <div>
+                    <p class="eyebrow">AI 规划台</p>
+                    <h2>把需求变成行动方案</h2>
+                  </div>
+                  <span class="planner-ai-badge" id="plannerAiBadge">本地模拟</span>
+                </div>
+                <textarea id="plannerRequirement" class="planner-requirement" placeholder="描述你要解决的事，例如：领导让我做一款电商软件；春节从厦门回金华；三个月提升商务英语。"></textarea>
+                <div class="planner-controls">
+                  <label>
+                    <span>开始日期</span>
+                    <input id="plannerStartDate" type="date" />
+                  </label>
+                  <label>
+                    <span>期望周期</span>
+                    <select id="plannerHorizon">
+                      <option value="auto">由 AI 判断</option>
+                      <option value="7">7 天</option>
+                      <option value="14">14 天</option>
+                      <option value="30">30 天</option>
+                      <option value="60">60 天</option>
+                    </select>
+                  </label>
+                  <button class="primary-button planner-generate-button" id="generatePlanButton" type="button">
+                    <i data-lucide="sparkles"></i>
+                    <span>生成方案</span>
+                  </button>
+                </div>
+                <div class="planner-status" id="plannerStatus"></div>
+                <div class="planner-options" id="plannerOptions"></div>
+                <div class="planner-preview" id="plannerPreview"></div>
+              </section>
+              <div class="schedule-insight-grid">
+                <section class="schedule-card compact-schedule-card">
+                  <p class="eyebrow">本周</p>
+                  <h2>维护分布</h2>
+                  <div id="weeklyPlan" class="week-grid"></div>
+                </section>
+                <section class="schedule-card compact-schedule-card">
+                  <p class="eyebrow">复盘</p>
+                  <h2>近期学习点</h2>
+                  <div id="lessonList" class="todo-list"></div>
+                </section>
+              </div>
             </aside>
           </div>
         </section>
