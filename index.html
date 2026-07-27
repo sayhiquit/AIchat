@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AI 人际管家</title>
-    <link rel="stylesheet" href="./styles.css?v=person-context-1" />
+    <link rel="stylesheet" href="./styles.css?v=ui-polish-020" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -105,7 +105,6 @@
                 </button>
               </div>
             </div>
-            <div class="manage-category-editor" id="manageCategoryEditor"></div>
             <div class="manage-filter-bar">
               <label>
                 <span>搜索人物</span>
@@ -130,6 +129,14 @@
                 </select>
               </label>
             </div>
+            <div class="manage-section-label">
+              <div>
+                <span>分类设置</span>
+                <small>名称与说明可直接编辑</small>
+              </div>
+              <i data-lucide="folders"></i>
+            </div>
+            <div class="manage-category-editor" id="manageCategoryEditor"></div>
             <div class="person-grid" id="personGrid"></div>
           </section>
         </section>
@@ -286,6 +293,13 @@
 
         <section class="view view-settings" id="settingsView">
           <div class="settings-layout">
+            <header class="settings-page-head">
+              <div>
+                <p class="eyebrow">偏好与数据</p>
+                <h1>设置中心</h1>
+              </div>
+              <p>管理关系模板、AI 模型、本地记忆与软件状态。</p>
+            </header>
             <section class="settings-module relation-settings-module" id="relationSettingsModule">
               <p class="eyebrow">模板</p>
               <h2>默认关系分类</h2>
@@ -576,6 +590,6 @@
       </form>
     </dialog>
 
-    <script src="./app.js?v=person-context-1"></script>
+    <script src="./app.js?v=ui-polish-020"></script>
   </body>
 </html>

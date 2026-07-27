@@ -2775,6 +2775,13 @@ function renderSchedulePlanner() {
     <button type="button" class="primary-button planner-confirm-button" id="confirmPlanOptionButton" ${!planner.selectedOptionId || busy ? "disabled" : ""}>
       <i data-lucide="list-checks"></i><span>确认方向并生成排期</span>
     </button>
+  ` : !busy ? `
+    <div class="planner-starters">
+      <span><i data-lucide="wand-sparkles"></i>快速开始</span>
+      <button type="button" data-planner-starter="领导让我做一款电商软件，请给出不同产品方向和完整执行排期">电商项目</button>
+      <button type="button" data-planner-starter="过年从厦门回到金华，请制定路线、购票和行前准备计划">跨城返乡</button>
+      <button type="button" data-planner-starter="我想在一个月内提升工作汇报能力，请制定训练和复盘计划">能力提升</button>
+    </div>
   ` : "";
 
   const plan = planner.draftPlan;
@@ -2806,6 +2813,16 @@ function renderSchedulePlanner() {
       planner.status = "ready";
       saveState();
       renderSchedulePlanner();
+    });
+  });
+  elements.plannerOptions.querySelectorAll("[data-planner-starter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      planner.requirement = button.dataset.plannerStarter;
+      planner.status = "idle";
+      planner.message = "";
+      saveState();
+      renderSchedulePlanner();
+      elements.plannerRequirement.focus();
     });
   });
   $("#confirmPlanOptionButton")?.addEventListener("click", confirmPlannerOption);
@@ -3143,7 +3160,7 @@ function renderDiagnostics() {
 }
 
 function appVersion() {
-  return "0.1.9";
+  return "0.2.0";
 }
 
 function renderAiConfig() {
