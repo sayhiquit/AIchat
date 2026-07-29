@@ -9,7 +9,7 @@ const electronMainFile = path.join(root, "electron", "main.js");
 const electronPreloadFile = path.join(root, "electron", "preload.js");
 const htmlFile = path.join(root, "index.html");
 const packageFile = path.join(root, "package.json");
-const requiredDocs = ["README.md", "DESKTOP_APP.md", "PROJECT_PROGRESS.md", "TEST_CHECKLIST.md"];
+const requiredDocs = ["README.md", "DESKTOP_APP.md", "PROJECT_PROGRESS.md", "TEST_CHECKLIST.md", "PROJECT_HANDOFF.md"];
 
 function fail(message) {
   console.error(`FAIL ${message}`);

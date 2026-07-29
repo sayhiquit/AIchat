@@ -28,7 +28,7 @@ npm.cmd run dist:win
 安装包不会读取或打包本机真实使用数据。API Key、人物库、关系网、聊天记录和本地配置保存在用户数据目录，通常是：
 
 ```text
-%APPDATA%\AI人际管家
+%APPDATA%\ai-relationship-butler
 ```
 
 安装新版本不会覆盖这些本地缓存。卸载配置也设置为不主动删除用户数据目录。
